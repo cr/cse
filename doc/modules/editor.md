@@ -10,6 +10,8 @@
 | [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py) | test contract |
 | [`tests/integration/test_m65_source_editor.py`](../../tests/integration/test_m65_source_editor.py) | test contract — the editor on the m65 PRG in each text mode (P2 T10, § On m65) |
 | [`tests/integration/editor_cap.py`](../../tests/integration/editor_cap.py) | test contract — the line cap's matrix (§ Long lines and the overflow indicator): every entry point, a case that fits and one that would pass the cap, run by test_editor.py (c64) and test_m65_source_editor.py (80 × 25, 40 × 25) |
+| [`tests/integration/editor_clip.py`](../../tests/integration/editor_clip.py) | test contract — the clipboard's and the line moves' matrix (§ Clipboard and line moves): each key from a load, the view on forty lines, swaps with a clipboard present; run by test_editor.py (c64) and test_m65_source_editor.py |
+| [`tests/integration/editor_seq.py`](../../tests/integration/editor_seq.py) | test contract — seeded random key sequences against a line model (testing.md Principle 22): the text, the cursor's line, the refusals and the view's least move after every key; run by test_editor.py (c64) and test_m65_source_editor.py (80 × 25, 40 × 25, 80 × 50) |
 
 ## Purpose
 
@@ -141,6 +143,15 @@ layout](gap_buffer.md#buffer-layout)).
 | `save_phase` | 1 | save callback state (0 = pre-gap, 1 = post-gap) |
 | `repl_cur_x` | 1 | saved REPL cursor column |
 | `repl_cur_y` | 1 | saved REPL cursor row |
+| `ed_mark1` | 2 | the mark's line + 1; 0 = no mark (so the BSS-zero cold state has none); right after `ed_cur_line` |
+| `rl_row` | 1 | `ed_render_line`'s row (`_sel_row`) |
+| `sel_lo`, `sel_hi` | 2 + 2 | the selected lines (`_select`) |
+| `sel_l0`, `sel_m0` | 2 + 2 | `ed_cur_line` and `ed_mark1` when the key began (`_sel_redraw`), in their order |
+| `cb_line` | 2 | `_to_line`'s target; paste: the line count before |
+| `cb_sl`, `cb_col` | 2 + 1 | the cursor's place (`_here` / `_goto`); `_view_fix`: rows to walk back |
+| `cb_s` | 2 | a start in the text (`_sel_bytes`, the swaps) |
+| `cb_eof` | 1 | the selection ends the text (no CR after it) |
+| `cb_t` | 2 | `_sel_row`: the row's line; `_select`: the mark's; the swaps: the lower line's start |
 
 Fifteen proc-local scratch bytes (`ed_render_line`, `div10`,
 `ed_render_status`, `ed_render_range`, `visual_col`, `line_vwidth`,
@@ -163,6 +174,16 @@ are BSS too, declared inside their `.proc`; CODE is never written
 | `visual_col` | — | A = column | visual column of the cursor (0..254) |
 | `line_vwidth` | `ed_scr` = line start | A = width | visual width up to CR/EOF; `$FF` on 8-bit overflow |
 | `cursor_line_vwidth` | — | A = width | `find_line_start` + `line_vwidth`; `_ins_capped`'s measure |
+| `ed_clip_key` | X = the key's index in `clip_keys` | C=1 done, C=0 refused | the six clipboard keys through a jump table (§ Clipboard and line moves) |
+| `_mark_policy` / `_mark_clear` | A = the key (kept) / — | — | the mark kept (the first 8 of `ed_keys`) or cleared |
+| `_select` | — | `sel_lo`, `sel_hi` | the selected lines: the mark's to the cursor's, or the cursor's |
+| `_sel_row` | `rl_row`, `ed_tmp` = the row drawn | — | `ed_render_line`'s tail: the row inverted when its line is within `sel_lo` … `sel_hi` |
+| `_sel_redraw` | `sel_l0`, `sel_m0` | — | at the end of a key: `_select`, then `ed_render` when the line or the mark changed and a mark is or was set |
+| `_to_line` | A/X = a line | — | the cursor to col 0 of that line (of the last line when there are fewer) |
+| `_line_end` | — | — | the cursor to its line's end (a CR or the text's end) |
+| `_sel_bytes` | — | `cb_s`, `ed_tmp`, `cb_eof` | the selected lines as the bytes before the cursor (the cursor after them), the mark cleared |
+| `_here` / `_goto` | — | `cb_sl`, `cb_col` | the cursor's place kept / gone back to |
+| `_view_fix` | — | `ed_top_ptr`, `ed_top_line` | the view after lines moved; the full redraw follows at the key's end |
 | `_ins_capped` | A = byte | C=1 inserted; C=0 refused | `gb_insert`, then taken back (the buffer and `ed_dirty` as before) when the cursor's line is wider than `LAST_COL`: the cap of printable, INS, TAB and RETURN's tab (§ Long lines) |
 | `char_width` | A = byte, X = vcol | A = width | 1, or 1..`TAB_WIDTH` for `$A0`.  **Clobbers `ed_tmp`** |
 | `advance_to_vcol` | A = target col | — | cursor right toward the target, stopping at CR/EOF or before a char that would overshoot |
@@ -193,7 +214,7 @@ The status bar (40 columns, all reversed):
 - Cols 19–23: `free:` label
 - Cols 24–27: lower free address — always `0800` (`workstart`)
 - Col 28: `-`
-- Cols 29–32: upper free address, `buf_base - 1` (= `workend`)
+- Cols 29–32: upper free address, `clip_base - 1` (= `workend`; `clip_base` is `buf_base` without a clipboard)
 - Cols 33–39: cursor position as `LLLL,CC` (1-based): the line
   number right-aligned in cols 33–36 with leading blanks (col 33 is
   blank below line 1000, so it doubles as the separator), clamped
@@ -294,7 +315,13 @@ means: `io_blip`, nothing changes.
 | INS | `gb_insert($20)` then `gb_cursor_left`: opens a space at the cursor, cursor stays.  Refused if the line would be wider than 39 columns after it (measured after the insert, § Long lines), or the buffer is full. | cursor row + status |
 | RETURN | Smart indent (§ Tab character).  Refused if the buffer is full. | previous row to bottom (or scroll) + status |
 | printable ($20–$7E, $C1–$DA) | Insert at the cursor, `ed_cur_col + 1`.  Refused if the line would be wider than 39 columns after it (measured after the insert, § Long lines), or the buffer is full.  `:` typed at the end of a line triggers the smart colon (§ Tab character). | cursor row + status |
-| anything else | Ignored, no blip (control codes, $7F–$C0 but $A0, $DB–$FF). | — |
+| C=+B / MEGA+B ($BF) | Set the mark on the cursor's line; on the marked line, clear it (§ Clipboard and line moves). | full redraw (the selection inverted) |
+| C=+X / MEGA+X ($BD) | Cut: the selected lines into the clipboard.  Refused when the clipboard would reach below the buffer's floor. | full redraw + status |
+| C=+C / MEGA+C ($BC) | Copy: the selected lines into the clipboard.  Refused if they cannot get the space. | full redraw (the selection cleared) |
+| C=+V / MEGA+V ($BE) | Paste: the clipboard's lines above the cursor's line.  Refused if the clipboard is empty or the buffer full. | full redraw + status |
+| C=+K / MEGA+K ($A1) | The cursor's line swaps with the line above; the cursor goes with its line.  Refused on line 1. | full redraw + status |
+| C=+J / MEGA+J ($B5) | The cursor's line swaps with the line below; the cursor goes with its line.  Refused on the last line. | full redraw + status |
+| anything else | Ignored, no blip (control codes, $7F–$C0 but $A0 and the six keys above, $DB–$FF). | — |
 
 UP / DOWN aim for the cursor's current visual column; on a shorter
 line the cursor stops at its end (or before a tab that would
@@ -456,6 +483,7 @@ invariant — so no other code needs to check it:
 | DEL at col 0 (join) | Always joins — no split, no blip (below); the joined line may be long.  The cursor goes to the join point, at most col 39. |
 | Load from SEQ | Verbatim, no width check: a file's lines may be long (§ Warnings). |
 | `enter_editor` seed, `ed_new` | One tab (`TAB_WIDTH` columns) / an empty buffer. |
+| Cut, paste, swap | Whole lines move, each keeping its bytes and so its width; the cursor goes to col 0 (cut, paste) or keeps its column on its own line (swap). |
 | RIGHT | Refused when the step would end past col 39: the column after it is `ed_cur_col` + the width of the byte it crosses (a tab crosses up to `TAB_WIDTH` columns at once — from col 32 a tab would land on col 40, the next screen row). |
 | LEFT, HOME | Toward col 0 only. |
 | UP, DOWN | `advance_to_vcol(ed_cur_col)`: stops at the line's end or before a byte that would overshoot, so never past the column it left. |
@@ -494,6 +522,62 @@ scans the buffer and prints `;!long LN` (1-based line number) for
 each line wider than 39 visual columns.  The assembler reads at most
 39 bytes of a line (gap_buffer.md § ed_read_line) and warns
 `;!N: truncated` ([asm_src.md § Caveats](asm_src.md#caveats)).
+
+### Clipboard and line moves
+
+The editor copies, cuts, pastes and swaps whole lines.
+The keys are C= (MEGA on m65) with a letter: ordinary key codes
+from `GETIN`, the same on both platforms, which the editor ignored
+before — no modifier is read.
+
+**Selection.**  C=+B sets the *mark* on the cursor's line; C=+B on the
+marked line clears it.  While a mark is set, the selected
+lines are shown **inverted**: their rows in reverse video, the whole
+width (`ed_render_line` reverses a row whose line is selected, so every
+way a row is drawn — a full redraw, a range, a scroll — shows it).
+After a key that changed the mark, or moved the cursor to another line
+while a mark is set, the editor redraws the view, so the inverted
+block follows the cursor.  The
+*selected lines* are those from the mark's line to the cursor's
+line, inclusive, in either order — or the cursor's line alone when
+no mark is set.  The cursor keys and HOME keep the mark; cut and copy
+use it and clear it; every other key the editor handles clears it
+(`_mark_policy`), and so do a load and `ed_new`.  RUN/STOP to the
+REPL and back keeps it.
+
+**The clipboard** holds whole lines, each ending in a CR, and lives
+below the text, at the bottom of the gap buffer's region
+([gap_buffer.md § The clipboard below the
+text](gap_buffer.md#the-clipboard-below-the-text)): the buffer's
+growth carries it, and it costs its length there — on the c64 the
+top of the workspace (`workend` moves down), on m65 source-region
+bytes — and no other memory.  It survives cursor moves,
+edits, leaving and entering the editor, `a`, `s` and RUN/STOP+RESTORE;
+`k`, `l` (a SEQ load) and `ed_new` empty it.
+
+| Key | Effect | Cursor after |
+|-----|--------|--------------|
+| C=+X (cut) | The selected lines are copied into the clipboard (the old one dropped) and deleted (`gb_clip_copy`, `gb_delete`).  Cutting the last line, which has no CR, adds one to the clipboard and deletes the CR before the cut lines, so no empty line is left behind.  Refused when the clipboard would reach below the buffer's floor (as copy). | col 0 of the line now in the cut lines' place (the last line, when they were at the end) |
+| C=+C (copy) | The selected lines are copied into the clipboard (the old one dropped); the text is unchanged.  Refused if the clipboard would reach below the buffer's floor (`BUF_FLOOR`); the old clipboard then stays. | unchanged |
+| C=+V (paste) | The clipboard's lines are inserted above the cursor's line; the clipboard stays, so pasting again repeats them.  Refused if the clipboard is empty or the gap and the growth left (the clipboard kept) cannot hold it. | col 0 of the line it was on (now below the pasted lines) |
+| C=+K / C=+J | The cursor's line and the line above / below exchange their contents; the CRs between lines stay where they are (so the last line needs none).  Done in place by three reversals (`gb_rev`: the upper line, the lower line, then both): no free byte needed.  Refused on line 1 / the last line. | on its own line, now one up / down, same column |
+
+`ed_dirty` is set by cut, paste and swap, not by the mark or copy.
+The view (`_view_fix`) moves as little as it can, as the cursor keys
+move it (§ Rendering): it stays when the cursor's line is still in the
+view the key began with; else it scrolls until that line is on the top
+row (the line went above the view) or on the bottom row (below it) — a
+paste or a swap down on the bottom row scrolls by the lines the cursor
+moved down.  (The moves a key makes on the way, `_to_line`, leave
+`ed_top_line` as it was.)  Cut, paste and swap then redraw in full.
+The line cap is untouched: lines move whole (§ Long lines, the
+entry-point table).
+
+**The document wins.**  When an insert — a printable, INS, TAB,
+RETURN — needs a free byte and the buffer can grow no further, the
+clipboard is dropped and the buffer grows into its bytes;
+only an insert that does not fit even then is refused.  A paste
+cannot drop the clipboard it inserts: it is refused instead.  
 
 ### Assembly errors
 

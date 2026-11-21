@@ -185,7 +185,7 @@ and banking hazards).
     $0800        workstart — first free workspace byte
       ...        Assembled output ↑ (grows up)
       ...        Free workspace
-    workend      last byte below the source text (buf_base − 1)
+    workend      last byte below the source text and its clipboard (clip_base − 1)
       ...        Source text ↓ (grows down)
     runtime start  CSE CODE (page-aligned)
       ...        CSE RODATA
@@ -616,17 +616,24 @@ growing downward from the CSE runtime start:
     $0800          workstart (fixed)
       ...          assembled output (grows up)
                      ... free gap ...
-    workend        buf_base − 1
+    workend        clip_base − 1
+    clip_base ←──  the editor's clipboard (below the text; empty: = buf_base)
     buf_base  ←──  source text (grows down toward $0800)
       ...
                    CSE runtime start
+
+The editor's clipboard lives below the text, at the
+bottom of the gap buffer's region
+([gap_buffer.md § The clipboard below the text](modules/gap_buffer.md#the-clipboard-below-the-text)),
+carried down by the buffer's growth: on the c64 it takes the top of
+the workspace, so the workspace's upper bound is `clip_base`.
 
 The `workstart` and `workend` symbols are pre-defined in the symbol
 table (`define_ws_syms`, gap_buffer.s, called by `_main` at cold init
 and by `asm_assemble` before and after its passes) and usable in
 assembly (`.org workstart`) and REPL expressions (`@ workend`,
 `j workstart`).  `workstart` is always $0800.  `workend` is
-`buf_base − 1` and moves when the gap buffer is reset or grows:
+`clip_base − 1` (`buf_base − 1` without a clipboard) and moves when the gap buffer is reset or grows, and when the clipboard is set or dropped:
 `update_workend` (gap_buffer.s) runs from `ed_init` (editor.s) and
 from `gb_ensure_room` after a gap grow.
 

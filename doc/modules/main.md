@@ -289,7 +289,7 @@ by earlier steps, with no hidden cross-subsystem reach-ins.
    `buf_base` ([gap_buffer.md](gap_buffer.md)).  A leaf: no symbol
    table contact.
 8. **`define_ws_syms`** — register `workstart` and `workend`
-   (`buf_base - 1`, so after step 7).
+   (`clip_base - 1`, so after step 7).
 9. **CPU-mode default** — `asm_cpu = DEFAULT_CPU`.
 10. **Free-ZP fill** — `$FF` from `cse_zp_end` through `$7F`.
 11. **Workspace fill** — `$00` from `$0800` up to the page of

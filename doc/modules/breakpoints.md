@@ -73,7 +73,7 @@ A slot is empty when `addr_lo | addr_hi == 0` (on m65 the bank too).  A breakpoi
 `$0000` is therefore not representable — acceptable because `$0000`
 is the CPU port (DDR), never a meaningful breakpoint target, and the
 only caller that takes a user address (`repl.s::cmd_brk`) accepts
-only `$0800 ≤ addr < buf_base` before it calls `dbg_bp_set` (on m65
+only `$0800 ≤ addr < clip_base` before it calls `dbg_bp_set` (on m65
 only user memory, which starts at `0.2000`).
 
 `dbg_bp_hit` (1 byte) names the user slot (0–7) of the breakpoint the

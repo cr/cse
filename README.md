@@ -202,7 +202,7 @@ command.  CLOUDY is the default on the C64 and the MEGA65.
   <td align="center"><img src="img/theme-LEEBRUCE.png" width="160" alt="LEEBRUCE"><br><sub>LEEBRUCE</sub></td>
 </tr>
 <tr>
-  <td align="center"><img src="img/theme-MRSPIGGY.png" width="160" alt="MRSPIGGY"><br><sub>MRSPIGGY</sub></td>
+  <td align="center"><img src="img/theme-MSPIGGY.png" width="160" alt="MSPIGGY"><br><sub>MSPIGGY</sub></td>
   <td align="center"><img src="img/theme-ORANGE.png" width="160" alt="ORANGE"><br><sub>ORANGE</sub></td>
   <td align="center"><img src="img/theme-MUDDY.png" width="160" alt="MUDDY"><br><sub>MUDDY</sub></td>
   <td align="center"><img src="img/theme-C64.png" width="160" alt="C64"><br><sub>C64</sub></td>
@@ -461,6 +461,10 @@ Press RUN/STOP to enter the editor from the REPL and back.
 | Cursor keys | Navigate |
 | HOME | Start of line |
 | SHIFT+SPACE | Tab (to next tab stop; refused at cap / on full buffer) |
+| C=+B | Mark the cursor's line (again: unmark); the lines from the mark to the cursor are shown inverted |
+| C=+X / C=+C | Cut / copy the lines from the mark to the cursor (or the cursor's line) |
+| C=+V | Paste the clipboard's lines above the cursor's line |
+| C=+K / C=+J | Swap the cursor's line with the line above / below |
 | RUN/STOP | Return to REPL |
 
 **Smart indent.**  New lines start with a tab (SHIFT+SPACE).
@@ -468,6 +472,15 @@ Typing `:` slides the current line to column 0 — labels are
 recognised by the colon and move to the left edge automatically.
 A colon after a `;` (in a comment) leaves the line where it is.
 RETURN after a colon also strips the gutter from the label line.
+
+**Clipboard.**  Copy, cut and paste work on whole lines: C=+B marks
+a line, the cursor marks the other end, C=+X or C=+C takes the lines
+in between (just the cursor's line without a mark), C=+V inserts them
+above the cursor's line — as often as you like.  The clipboard lives
+right below the source text: on the C64 it takes its length off the
+top of your workspace (`workend` moves down while it holds lines);
+when the source needs the space, the clipboard gives it up.  On the MEGA65
+the key is MEGA instead of C=.
 
 The source text sits in memory directly below CSE; as it grows, the
 end of your workspace (`workend`) moves down.  The status bar shows

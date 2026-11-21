@@ -35,6 +35,8 @@ run/stop          editor / repl
 esc 4  5  8       40x25 80x50 80x25
 esc  shift+clr    redraw the repl
 help              this help
+mega+b x c v      mark cut copy paste
+mega+k  mega+j    swap line up/down
 
 directives
 .org expr         set the pc

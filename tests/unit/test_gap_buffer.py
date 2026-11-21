@@ -278,6 +278,15 @@ class TestEdReadLine:
 def _gap_lo(mem, gb_syms):
     return mem[gb_syms.gap_lo] | (mem[gb_syms.gap_lo + 1] << 8)
 
+
+def _at_floor(b):
+    """The buffer at BUF_FLOOR, so it cannot grow: the text extended down
+    to the floor with Z bytes (a real state, not stale memory)."""
+    g = b.g
+    floor, base = g.BUF_FLOOR, _buf_base(b.mem, g)
+    b.mem[floor:base] = b"Z" * (base - floor)
+    _w(b.mem, g.buf_base, floor)
+
 def _gap_hi(mem, gb_syms):
     return mem[gb_syms.gap_hi] | (mem[gb_syms.gap_hi + 1] << 8)
 
@@ -515,6 +524,8 @@ class TestGbEnsureRoom:
         floor = gb_syms.BUF_FLOOR
         mem[gb_syms.buf_base]     = floor & 0xFF
         mem[gb_syms.buf_base + 1] = (floor >> 8) & 0xFF
+        cb = gb_syms.s["clip_base"]                 # no clipboard: clip_base = buf_base
+        mem[cb], mem[cb + 1] = floor & 0xFF, floor >> 8
         mem[gb_syms.gap_lo]       = floor & 0xFF
         mem[gb_syms.gap_lo + 1]   = (floor >> 8) & 0xFF
         mem[gb_syms.gap_hi]       = floor & 0xFF
@@ -539,8 +550,8 @@ class TestEdInsertStringFull:
         _jsr(cpu, mem, gb_syms.ed_ensure_init)
         floor = gb_syms.BUF_FLOOR
         mem[floor:floor + 4] = [0x41, 0x42, 0x00, 0x0D]   # "AB" | 1-byte gap | CR
-        for sym, val in ((gb_syms.buf_base, floor), (gb_syms.gap_lo, floor + 2),
-                         (gb_syms.gap_hi, floor + 3)):
+        for sym, val in ((gb_syms.buf_base, floor), (gb_syms.s["clip_base"], floor),
+                         (gb_syms.gap_lo, floor + 2), (gb_syms.gap_hi, floor + 3)):
             mem[sym], mem[sym + 1] = val & 0xFF, val >> 8
         _insert_text(cpu, mem, gb_syms, b"XYZ")
         assert mem[gb_syms.gap_lo] | (mem[gb_syms.gap_lo + 1] << 8) == floor + 3
@@ -683,3 +694,214 @@ class TestBufferBoundsState:
         cpu, mem = make_cpu(gb_syms)
         _insert_text(cpu, mem, gb_syms, b"X")     # triggers growth
         assert _word(mem, gb_syms.src_bot) == _buf_base(mem, gb_syms)
+
+
+# ── The clipboard below the text (gap_buffer.md § The clipboard below the
+# text, § gb_clip_copy …; editor.md § Clipboard and line moves) ───────
+
+def _w(mem, addr, val):
+    mem[addr], mem[addr + 1] = val & 0xFF, val >> 8
+
+
+def _gap_lo(mem, gb_syms):
+    return mem[gb_syms.gap_lo] | (mem[gb_syms.gap_lo + 1] << 8)
+
+
+class Gap:
+    """The bundle's buffer, read straight from memory: the text (pre-gap
+    + post-gap) and the clipboard [clip_base, buf_base)."""
+
+    def __init__(self, gb_syms):
+        self.g = gb_syms
+        self.cpu, self.mem = make_cpu(gb_syms)
+        self.clip_base = gb_syms.s["clip_base"]
+        _jsr(self.cpu, self.mem, gb_syms.ed_ensure_init)
+
+    def call(self, name, n=None, carry=None, a=0, x=0):
+        if n is not None:
+            _w(self.mem, self.g.s["ed_tmp"], n)
+        if carry is not None:
+            self.cpu.p = (self.cpu.p & ~1) | carry
+        _jsr(self.cpu, self.mem, self.g.s[name], a=a, x=x)
+        return self.cpu.p & 1
+
+    def text(self):
+        m, g = self.mem, self.g
+        return bytes(m[_buf_base(m, g):_gap_lo(m, g)]) + bytes(m[_gap_hi(m, g):g.BUF_END])
+
+    def clip(self):
+        lo = _word(self.mem, self.clip_base)
+        assert lo <= _buf_base(self.mem, self.g)
+        return bytes(self.mem[lo:_buf_base(self.mem, self.g)])
+
+    def insert(self, text):
+        _insert_text(self.cpu, self.mem, self.g, text)
+
+    def left(self, k=1):
+        for _ in range(k):
+            _jsr(self.cpu, self.mem, self.g.gb_cursor_left)
+
+    def right(self, k=1):
+        for _ in range(k):
+            _jsr(self.cpu, self.mem, self.g.gb_cursor_right)
+
+    def layout(self, base, pre, clip, post):
+        """A state laid out in memory: the clipboard below `base` (buf_base),
+        the pre-gap text from it, the post-gap text up to BUF_END."""
+        m, g = self.mem, self.g
+        m[base - len(clip):base] = clip
+        m[base:base + len(pre)] = pre
+        end = g.BUF_END
+        m[end - len(post):end] = post
+        _w(m, self.clip_base, base - len(clip))
+        _w(m, g.buf_base, base)
+        _w(m, g.gap_lo, base + len(pre))
+        _w(m, g.gap_hi, end - len(post))
+        _w(m, g.ed_total_lines, (pre + post).count(b"\r") + 1)
+
+
+class TestClipboard:
+
+    def test_copy_takes_the_bytes_before_the_cursor(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"AB\rCD\rEF")
+        b.left(2)                                   # after "CD\r"
+        b.mem[gb_syms.ed_dirty] = 0
+        assert b.call("gb_clip_copy", n=3, carry=0) == 1
+        assert b.clip() == b"CD\r" and b.text() == b"AB\rCD\rEF"
+        assert b.mem[gb_syms.ed_dirty] == 0
+
+    def test_copy_with_c_adds_a_cr(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"AB\rEF")
+        assert b.call("gb_clip_copy", n=2, carry=1) == 1
+        assert b.clip() == b"EF\r" and b.text() == b"AB\rEF"
+
+    def test_copy_drops_the_old_clipboard(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"ONE\rTWO\r")
+        b.call("gb_clip_copy", n=4, carry=0)
+        b.left(4)
+        b.call("gb_clip_copy", n=4, carry=0)
+        assert b.clip() == b"ONE\r"
+
+    def test_copy_below_the_floor_is_refused(self, gb_syms):
+        b = Gap(gb_syms)
+        base = gb_syms.BUF_FLOOR + 0x100
+        b.layout(base, b"P" * 300, b"OLD", b"Q\r")
+        assert b.call("gb_clip_copy", n=257, carry=0) == 0
+        assert b.clip() == b"OLD"
+        assert b.call("gb_clip_copy", n=256, carry=0) == 1
+        assert b.clip() == b"P" * 256
+
+    def test_delete_removes_the_bytes_before_the_cursor(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"AB\rCD\rEF")
+        b.left(2)
+        lines = _total_lines(b.mem, gb_syms)
+        b.mem[gb_syms.ed_dirty] = 0
+        b.call("gb_delete", n=3)
+        assert b.text() == b"AB\rEF"
+        assert _total_lines(b.mem, gb_syms) == lines - 1
+        assert b.mem[gb_syms.ed_dirty] == 1
+
+    def test_put_inserts_the_clipboard_and_keeps_it(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"AB\rCD\r")
+        b.call("gb_clip_copy", n=3, carry=0)       # "CD\r"
+        b.left(6)
+        lines = _total_lines(b.mem, gb_syms)
+        assert b.call("gb_clip_put") == 1
+        assert b.call("gb_clip_put") == 1
+        assert b.text() == b"CD\rCD\rAB\rCD\r" and b.clip() == b"CD\r"
+        assert _total_lines(b.mem, gb_syms) == lines + 2
+
+    def test_put_of_an_empty_clipboard_is_refused(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"AB")
+        assert b.call("gb_clip_put") == 0
+        assert b.text() == b"AB"
+
+    def test_put_without_room_changes_nothing(self, gb_syms):
+        b = Gap(gb_syms)
+        floor = gb_syms.BUF_FLOOR
+        b.layout(floor + 3, b"AB", b"XYZ", b"C" * (gb_syms.BUF_END - floor - 3 - 2 - 2))
+        assert _gap_hi(b.mem, gb_syms) - _gap_lo(b.mem, gb_syms) == 2
+        before = b.text()
+        assert b.call("gb_clip_put") == 0
+        assert b.text() == before and b.clip() == b"XYZ"
+
+    def test_growth_carries_it_below_the_text(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"KEEP\r")
+        b.call("gb_clip_copy", n=5, carry=0)
+        base = _buf_base(b.mem, gb_syms)
+        b.insert(b"Q" * 300)                        # past the gap: growth
+        assert _buf_base(b.mem, gb_syms) < base
+        assert b.clip() == b"KEEP\r" and b.text() == b"KEEP\r" + b"Q" * 300
+
+    def test_cursor_moves_and_deletes_never_touch_it(self, gb_syms):
+        b = Gap(gb_syms)
+        text = b"".join(b"L%02d\r" % k for k in range(30))
+        b.insert(text)
+        b.left(60)
+        b.call("gb_clip_copy", n=8, carry=0)
+        b.right(60)
+        b.left(120)
+        b.right(90)
+        for _ in range(5):
+            _jsr(b.cpu, b.mem, gb_syms.gb_backspace)
+        assert b.clip() == b"L13\rL14\r"
+        assert b.text() == text[:85] + text[90:]
+
+    def test_an_insert_drops_it_the_document_wins(self, gb_syms):
+        """At the floor, the clipboard keeping the buffer from growing: an
+        insert drops it and the buffer grows into its bytes."""
+        b = Gap(gb_syms)
+        floor = gb_syms.BUF_FLOOR
+        base = floor + 0x100
+        b.layout(base, b"AB", b"K" * 10, b"C" * (gb_syms.BUF_END - base - 2))
+        assert _gap_hi(b.mem, gb_syms) == _gap_lo(b.mem, gb_syms)     # gap empty
+        _jsr(b.cpu, b.mem, gb_syms.gb_insert, a=ord("W"))
+        assert b.cpu.p & 1 == 1
+        assert b.clip() == b""
+        assert b.text().startswith(b"ABW")
+
+    def test_without_a_clipboard_at_the_floor_the_insert_is_refused(self, gb_syms):
+        b = Gap(gb_syms)
+        floor = gb_syms.BUF_FLOOR
+        b.layout(floor, b"AB", b"", b"C" * (gb_syms.BUF_END - floor - 2))
+        _jsr(b.cpu, b.mem, gb_syms.gb_insert, a=ord("V"))
+        assert b.cpu.p & 1 == 0
+
+    def test_the_reader_and_line_count_never_see_it(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"AB\rCD\r")
+        b.call("gb_clip_copy", n=3, carry=0)
+        assert _read_back(b.cpu, b.mem, gb_syms) == b"AB\rCD\r"
+        assert _total_lines(b.mem, gb_syms) == 3
+
+    def test_drop_and_init_empty_it(self, gb_syms):
+        b = Gap(gb_syms)
+        b.insert(b"AB\r")
+        b.call("gb_clip_copy", n=3, carry=0)
+        b.call("gb_clip_drop")
+        assert b.clip() == b""
+        b.call("gb_clip_copy", n=3, carry=0)
+        b.call("gb_init")
+        assert b.clip() == b""
+
+
+class TestGbRev:
+    """gb_rev reverses the text before the gap from save_ptr up to the end
+    in A/X (the swaps' tool)."""
+
+    @pytest.mark.parametrize("n", [0, 1, 2, 7, 300])
+    def test_rev(self, gb_syms, n):
+        b = Gap(gb_syms)
+        text = bytes(0x41 + k % 26 for k in range(310))
+        b.insert(text)
+        start = _buf_base(b.mem, gb_syms) + 3
+        _w(b.mem, gb_syms.s["read_ptr"], start)
+        b.call("gb_rev", a=(start + n) & 0xFF, x=(start + n) >> 8)
+        assert b.text() == text[:3] + text[3:3 + n][::-1] + text[3 + n:]

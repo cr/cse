@@ -47,7 +47,7 @@ SYM_P0 = $40                    ; symtab.s pass-0 stamp (symtab.md § Pass stamp
 .else
         .import         cur_project_name           ; zp.s's BSS (zp.md)
 .endif
-        .importzp       buf_base                ; zp.s — gap buffer low bound = workend+1
+        .import         clip_base               ; gap_buffer.s — the workspace's bound = workend+1
         .importzp       rp_ptr2                 ; zp.s — scratch pointer (repl/info_line)
         .importzp       asm_pc, asm_out, asm_len, asm_cpu, asm_tmp, asm_tmp2
         .importzp       expr_ptr, expr_val, expr_wide
@@ -246,7 +246,7 @@ inc_pc_size:
 ; ── _emit_byte ────────────────────────────────────────────────────────────
 ; Emit byte in A to (asm_pc) on pass 1; advance asm_pc+asm_size always.
 ; The single gate for every output byte: only the workspace,
-; WORKSTART <= asm_pc < the workspace's upper bound (c64 buf_base, m65
+; WORKSTART <= asm_pc < the workspace's upper bound (c64 clip_base, m65
 ; HIMEM: workstart..workend, as bp_range_check),
 ; and never after a wrap past $FFFF (_pc_wrap).  Otherwise the byte is
 ; dropped and _oor set — do_pass reports `range` once for the line.
@@ -282,11 +282,11 @@ _emit_byte:
         ldy asm_pc+1
         cpy #>WORKSTART
         bcc @oor                ; below the workspace
-        cpy buf_base+1
+        cpy clip_base+1
         bcc @ok
-        bne @oor                ; at/above the source text
+        bne @oor                ; at/above the clipboard and the source text
         ldy asm_pc
-        cpy buf_base
+        cpy clip_base
         bcs @oor
 .endif
 @ok:    ldy #0

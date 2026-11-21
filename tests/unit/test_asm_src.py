@@ -1336,8 +1336,9 @@ class TestNoWrapPastFFFF:
 
 # ── Workspace guard (assembler_syntax.md § .org, asm_src.md § Emission) ─────
 #
-# Output lands only in the workspace, $0800 <= addr < buf_base (the
-# bundle stub sets buf_base = $E000; production: the gap buffer's base).
+# Output lands only in the workspace, $0800 <= addr < clip_base (the
+# bundle stub sets clip_base = $E000; production: the clipboard's base,
+# the gap buffer's own when the clipboard is empty).
 
 class TestWorkspaceGuard:
 

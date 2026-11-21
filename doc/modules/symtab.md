@@ -74,7 +74,7 @@ Direct callers:
 | Caller | Name | Purpose |
 |---|---|---|
 | `gap_buffer.s::define_ws_syms` | `workstart` | fixed $0800; called at cold init (main.s) and by `asm_assemble` before each pass |
-| `gap_buffer.s::update_workend` | `workend` | `buf_base - 1`; falls in from `define_ws_syms`, and called after every buffer-base change |
+| `gap_buffer.s::update_workend` | `workend` | `clip_base - 1`; falls in from `define_ws_syms`, and called after every buffer-base change |
 | `asm_src.s::define_label` and the `.const` handler (`d_const`) | user symbols | per `main:` / `.loop:` / `.const` in source, on both passes (pass 1 re-stamps) |
 
 ## Design

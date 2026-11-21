@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/gap_buffer.s`](../../src/gap_buffer.s) | implementation |
-| [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (38 tests) |
+| [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (64 tests) |
 
 The editor's Tier I tests, [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py)
 (owned by [editor.md](editor.md)), exercise this module transitively.
@@ -44,7 +44,8 @@ KERNAL machinery because that lives at L4.
   $100`) when `gb_ensure_room` needs more space, never below
   `__BUF_FLOOR__`.
 - **`gap_lo`** — first byte of the gap.  Bytes `[buf_base, gap_lo)`
-  are pre-cursor content.
+  are pre-cursor content (below `buf_base`, the clipboard: § The
+  clipboard below the text).
 - **`gap_hi`** — first byte after the gap.  Bytes `[gap_hi, BUF_END)`
   are post-cursor content.
 - **`BUF_END`** (c64: `__CODE_RUN__`) — ceiling, exclusive.  Fixed at
@@ -88,6 +89,40 @@ whose m65 clobbers (the `Z` register; N/Z on a store) no caller here
 relies on, so no clobber list below changes.  On m65 the source text
 and the user's output are in different regions and do not compete for
 space.
+
+### The clipboard below the text
+
+The editor's clipboard (editor.md § Clipboard and line
+moves) is the bottom of the buffer's region, **below the text**:
+
+```
+    clip_base     buf_base       gap_lo        gap_hi          BUF_END
+       │             │             │              │               │
+       ▼             ▼             ▼              ▼               ▼
+   ┌─────────────┬─────────────┬──────────────┬─────────────────┐
+   │ clipboard   │ text        │ <--- gap --->│ text            │
+   └─────────────┴─────────────┴──────────────┴─────────────────┘
+```
+
+- **`clip_base`** (BSS, 2 bytes; on m65 an offset in the source bank)
+  — the clipboard's first byte; it ends at `buf_base`, so its length
+  is `buf_base − clip_base` and `clip_base = buf_base` is the empty
+  clipboard.  `gb_init` sets it with `buf_base`.
+- Nothing that edits or walks the text sees it: the reader, the
+  rendering, line counting, save, the cursor moves and the inserts
+  all work at `buf_base` and above, exactly as without a clipboard.
+- **Growth carries it.**  The growth (`gb_ensure_room`) moves `[clip_base, gap_lo)` down a
+  page — the clipboard and the pre-gap text together — so the
+  clipboard stays right below the text.  The growth limit is
+  `clip_base − 256 ≥ BUF_FLOOR`.
+- **The document wins.**  When `gb_ensure_room` cannot grow, it drops
+  the clipboard (`clip_base = buf_base`) and grows again: the text
+  gets every byte it would have had without a clipboard.
+- **What it costs:** its length, below the text — on the c64 the top
+  of the user's workspace, so the workspace's upper bound is
+  `clip_base` (`workend = clip_base − 1`, the emit gate, `b`, the
+  status bar's `free:`), as the buffer's growth already takes it; on
+  m65 bytes of the source region.  `src_bot` is `clip_base`.
 
 Lines are separated by `$0D` (CR); there is no terminator after the
 last line.  The workspace this buffer shares with the assembled
@@ -155,6 +190,33 @@ across the gap.  No-op at the respective buffer end (`buf_base` /
 `BUF_END`).  Crosses CRs like any other byte; `ed_dirty` untouched.
 **Clobbers:** A, Y.
 
+### gb_clip_copy / gb_delete / gb_clip_put / gb_clip_drop / gb_rev
+
+- **`gb_clip_copy`** — In: `ed_tmp` = *n*, C=1: add a CR.  Out: C=1 —
+  the *n* bytes before the cursor (and the CR) are the clipboard,
+  copied to `buf_base − n(+1)` … `buf_base` (the old one dropped), the
+  text unchanged, `ed_dirty` untouched; C=0 — they would reach below
+  `BUF_FLOOR`: nothing changed, the old clipboard kept.  On the c64
+  `workend` republished.
+- **`gb_delete`** — In: `ed_tmp` = *n*.  The *n* bytes before the
+  cursor deleted (`gap_lo −= n`), `ed_total_lines` less their CRs,
+  `ed_dirty` set.  With `gb_clip_copy` it is the editor's cut.
+- **`gb_clip_put`** — Out: C=1 — the clipboard's bytes inserted at the
+  cursor (`gb_insert` each: after them on return), the clipboard
+  kept; C=0 — an empty clipboard, or the gap and the growth left
+  cannot hold it: nothing changed.
+- **`gb_clip_drop`** — `clip_base = buf_base`; on the c64 `workend`
+  republished.  Called by `gb_ensure_room` when it cannot grow.
+- **`gb_rev`** — In: `save_ptr` = a byte of the text before the gap,
+  A/X = an end (exclusive) up to `gap_lo`.  The bytes between reversed
+  in place; the line swaps' tool (editor.md § Clipboard and line
+  moves: the upper line, the lower line, then both with the CR between
+  them, reversed — the lines exchanged).
+
+**Clobbers** (copy, delete, put, drop): A, X, Y, `ed_tmp`, `ed_scr`,
+`read_ptr` (= save_ptr), symtab ZP.  `gb_rev`: A, Y, `ed_scr`,
+`read_ptr` (= save_ptr).
+
 ### gb_home
 **In:** none
 **Out:** moves the cursor left until it lands at the start of the
@@ -164,12 +226,15 @@ current logical line (either the byte after the previous CR or
 
 ### gb_ensure_room
 **In:** none
-**Out:** C=1 if the gap has at least one byte free (growing first if
-needed); C=0 if the gap is empty and `buf_base - 256` would fall
-below `__BUF_FLOOR__`.  To grow, it subtracts 256 from `buf_base`,
-copies the pre-gap content down by 256, leaves a 256-byte gap, moves
-`ed_top_ptr` down with the text when it points into the pre-gap,
-sets `src_bot = buf_base` and calls `update_workend`.
+**Out:** C=1 if the gap has a free byte — at once, or after growing
+(the growth), or after dropping the clipboard and growing; C=0
+if the gap is empty and `clip_base − 256` would fall below
+`BUF_FLOOR` even without a clipboard.  The growth subtracts 256 from
+`clip_base` and `buf_base`, copies the clipboard and the pre-gap
+content down by 256 (`gap_lo` with them; `gap_hi` stays: the gap
+grows by 256 below), moves `ed_top_ptr` down with the text when it
+points into the pre-gap, sets `src_bot = clip_base` and calls
+`update_workend`.
 **Clobbers:** A, `ed_tmp`; when it grows also X, Y, `ed_scr`,
 `read_ptr` (= save_ptr) and symtab ZP.
 
@@ -249,7 +314,7 @@ Shared helper for `editor.s`'s rendering code.
 **In:** none
 **Out:** `define_ws_syms` registers the `workstart` symbol at `$0800`
 (fixed) and falls through into `update_workend`, which (re)defines
-the `workend` symbol at `buf_base - 1` (dynamic — tracks buffer
+the `workend` symbol at `clip_base - 1` (dynamic — tracks buffer
 growth).  Both symbols are absolute (`sym_wide = 1`).
 **Clobbers:** A, X, Y, symtab ZP.
 
@@ -267,7 +332,10 @@ and by `editor.s::ed_init` after every full editor reset.  It is
 
 ### Memory
 
-**BSS (6 bytes):** `ed_total_lines` (2), `src_top` (2), `src_bot` (2).
+**BSS (15 bytes):** `ed_total_lines` (2), `src_top` (2), `src_bot` (2);
+the clipboard's start `clip_base` (2); the copier's count `cb_cnt` (2)
+and CRs `cb_crs` (2); `gb_clip_put`'s length `cb_len` (2);
+`gb_clip_copy`'s added-CR flag `cb_cr` (1).
 
 **ZP (from zp.s, allocation in [zp.md](zp.md)):** `gap_lo`, `gap_hi`,
 `buf_base`, `ed_top_ptr`, `read_ptr` (= save_ptr), `ed_tmp`, `ed_scr`,
@@ -281,7 +349,7 @@ platform constants on m65.
 
 ## Test contract
 
-Full Tier U coverage via `tests/unit/test_gap_buffer.py` (38 tests):
+Full Tier U coverage via `tests/unit/test_gap_buffer.py` (64 tests):
 
 | Test class | Coverage |
 |---|---|
@@ -293,8 +361,10 @@ Full Tier U coverage via `tests/unit/test_gap_buffer.py` (38 tests):
 | `TestGbEnsureRoom` (3) | First insert triggers growth, content preserved across multiple growth rounds, BUF_FLOOR returns C=0. |
 | `TestEdInsertStringFull` (1) | `ed_insert_string` on a full buffer drops the rest of the string, nothing written past the gap. |
 | `TestGbInitLeaf` (1) | `gb_init` does not reach the symbol table (`$0000`–`$0007` untouched with `_st_heap` = 0). |
-| `TestWorkspaceSymbols` (3) | `define_ws_syms` registers `workstart = $0800`, `workend = buf_base - 1`, and `update_workend` tracks growth. |
+| `TestWorkspaceSymbols` (3) | `define_ws_syms` registers `workstart = $0800`, `workend = clip_base - 1`, and `update_workend` tracks growth. |
 | `TestBufferBoundsState` (3) | `src_top` / `src_bot` BSS state reflects buffer bounds. |
+| `TestClipboard` (14) | `gb_clip_copy` (the bytes before the cursor below `buf_base`, the text kept, dirty untouched; C=1 adds the CR; the old one dropped; refused below the floor, the old one kept), `gb_delete` (line count, dirty), `gb_clip_put` (twice, line count; empty and no-room refusals), the growth carrying it, cursor moves and deletes never touching it, the document wins (an insert drops it and grows; without one at the floor refused), the reader and line count never seeing it, `gb_clip_drop` / `gb_init`. |
+| `TestGbRev` (5) | `gb_rev` for 0, 1, 2, 7 and 300 bytes. |
 
 `ed_read_byte`'s per-call advance is also witnessed transitively by
 the `_read_back` helper, which walks the whole buffer byte by byte

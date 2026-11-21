@@ -40,6 +40,8 @@
         .export gb_insert, gb_backspace
         .export gb_cursor_left, gb_cursor_right, gb_home
         .export gb_ensure_room
+        .export gb_clip_copy, gb_delete, gb_clip_put, gb_clip_drop, gb_rev
+        .export clip_base
         .export ed_insert_string
         .export ed_read_rewind, ed_read_byte, ed_read_line
         .export check_buf_end
@@ -72,6 +74,11 @@ save_ptr = read_ptr
 ed_total_lines: .res 2          ; total line count in buffer
 src_top:        .res 2          ; buffer upper bound (for REPL i command)
 src_bot:        .res 2          ; buffer lower bound (for REPL i command)
+clip_base:      .res 2          ; the clipboard's start: [clip_base, buf_base),
+                                ;   below the text (gap_buffer.md)
+cb_cnt:         .res 2          ; _xfer / gb_clip_put: a byte count
+cb_crs:         .res 2          ; _xfer: the CRs it passed
+cb_len:         .res 2          ; gb_clip_put: the clipboard's length
 
 ; ── CODE ─────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -86,6 +93,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sta gap_lo
         sta gap_hi
         sta buf_base
+        sta clip_base
         sta ed_top_ptr
         sta src_top
         sta src_bot
@@ -93,6 +101,7 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         sta gap_lo+1
         sta gap_hi+1
         sta buf_base+1
+        sta clip_base+1
         sta ed_top_ptr+1
         sta src_top+1
         sta src_bot+1
@@ -163,11 +172,11 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
 ; also falls-into from define_ws_syms above.
 .proc update_workend
 .ifdef PLATFORM_C64
-        lda buf_base
+        lda clip_base           ; below the text and its clipboard
         sec
         sbc #1
         sta sym_val
-        lda buf_base+1
+        lda clip_base+1
         sbc #0
         sta sym_val+1
 .else
@@ -202,23 +211,23 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         beq :+                  ; gap == 0, need to grow
         jmp @have_room          ; gap > 0
 :
-        ; Check buf_base - 256 >= BUF_FLOOR
-        ; BUF_FLOOR is page-aligned, so hi-byte check is sufficient
-        lda buf_base+1
-        cmp #>(BUF_FLOOR) + 1   ; buf_base.hi > BUF_FLOOR.hi?
+@grow:  ; Check clip_base - 256 >= BUF_FLOOR (the clipboard below the
+        ; text moves down with it).  BUF_FLOOR is page-aligned, so the
+        ; hi-byte check is sufficient
+        lda clip_base+1
+        cmp #>(BUF_FLOOR) + 1   ; clip_base.hi > BUF_FLOOR.hi?
         jcc @no_room
-@can_grow:
-        ; pre_size = gap_lo - buf_base
+        ; pre_size = gap_lo - clip_base: the clipboard and the pre-gap text
         lda gap_lo
         sec
-        sbc buf_base
+        sbc clip_base
         sta ed_tmp              ; pre_size lo
         lda gap_lo+1
-        sbc buf_base+1
+        sbc clip_base+1
         sta ed_tmp+1            ; pre_size hi
 
-        ; new_base = buf_base - 256 (subtract $0100)
-        ; Just decrement buf_base hi byte
+        ; both bases down a page
+        dec clip_base+1
         dec buf_base+1
 
         ; Copy pre-gap text from old_base to new_base (ascending copy)
@@ -229,13 +238,13 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         ora ed_tmp+1
         beq @no_copy            ; pre_size = 0, skip copy
 
-        ; Setup copy: src = buf_base+$100 (old base), dst = buf_base (new base)
+        ; Setup copy: src = clip_base+$100 (old base), dst = clip_base (new)
         ; We need to copy ed_tmp bytes ascending
         ; Use save_ptr as src, ed_scr as dst (both are scratch-safe here)
-        lda buf_base
+        lda clip_base
         sta ed_scr              ; dst lo (new_base)
         sta save_ptr            ; src lo = same base
-        lda buf_base+1
+        lda clip_base+1
         sta ed_scr+1            ; dst hi
         clc
         adc #1
@@ -292,36 +301,267 @@ src_bot:        .res 2          ; buffer lower bound (for REPL i command)
         bcc @no_adjust          ; gap_lo < ed_top_ptr
 @shift: dec ed_top_ptr+1
 @no_adjust:
-        ; Update gap_lo = new_base + pre_size
-        lda buf_base
+        ; Update gap_lo = new clip_base + pre_size
+        lda clip_base
         clc
         adc ed_tmp              ; pre_size lo
         sta gap_lo
-        lda buf_base+1
+        lda clip_base+1
         adc ed_tmp+1
         sta gap_lo+1
 
-        ; gap_hi = gap_lo + 256
-        lda gap_lo
-        sta gap_hi
-        lda gap_lo+1
-        clc
-        adc #1
-        sta gap_hi+1
+        ; gap_hi stays: the gap grew by 256 below (it was empty, so gap_hi
+        ; = the old gap_lo = the new gap_lo + 256)
 
-        ; Update src_bot + workend symbol
-        lda buf_base
-        sta src_bot
-        lda buf_base+1
-        sta src_bot+1
-        jsr update_workend
+        jsr _src_bot            ; src_bot + workend symbol
 
 @have_room:
         sec                     ; success
         rts
-@no_room:
-        clc                     ; failure
+@no_room:                       ; the document wins: a clipboard dropped,
+        lda clip_base           ;   then grow again
+        cmp buf_base
+        bne @drop
+        lda clip_base+1
+        cmp buf_base+1
+        beq @full
+@drop:  jsr gb_clip_drop
+        jmp @grow
+@full:  clc                     ; failure
         rts
+.endproc
+
+; ── The clipboard below the text (gap_buffer.md § The clipboard below
+; the text): [clip_base, buf_base); the growth carries it.
+
+.macro SRC_BANKS                ; save_ptr and ed_scr into the source bank
+        FAR_BANK save_ptr, BANK_SRC
+        FAR_BANK ed_scr, BANK_SRC
+.endmacro
+
+.segment "BSS"
+cb_cr:  .res 1                  ; gb_clip_copy: 1 = add a CR
+.segment "CODE"
+
+; ── _src_bot — src_bot = clip_base, the workend symbol republished.
+_src_bot:
+        lda clip_base
+        sta src_bot
+        lda clip_base+1
+        sta src_bot+1
+        jmp update_workend
+
+; ── gb_clip_drop — the clipboard emptied: clip_base = buf_base.
+gb_clip_drop:
+        lda buf_base
+        sta clip_base
+        lda buf_base+1
+        sta clip_base+1
+        jmp _src_bot
+
+; ── _back_n — save_ptr = gap_lo - ed_tmp: the n bytes before the cursor;
+; both pointers' banks the source bank.  Clobbers A.
+_back_n:
+        lda gap_lo
+        sec
+        sbc ed_tmp
+        sta save_ptr
+        lda gap_lo+1
+        sbc ed_tmp+1
+        sta save_ptr+1
+        SRC_BANKS
+        rts
+
+; ── _xfer — ed_tmp bytes from (save_ptr) to (ed_scr), ascending;
+; cb_crs = the CRs among them.  Clobbers A, Y, save_ptr, ed_scr, cb_cnt.
+.proc _xfer
+        lda ed_tmp
+        sta cb_cnt
+        lda ed_tmp+1
+        sta cb_cnt+1
+        lda #0
+        sta cb_crs
+        sta cb_crs+1
+@lp:    lda cb_cnt
+        ora cb_cnt+1
+        beq @r
+        ldy #0
+        FAR_LDA save_ptr
+        FAR_STA ed_scr
+        cmp #$0D
+        bne :+
+        inc cb_crs
+        bne :+
+        inc cb_crs+1
+:       inc save_ptr
+        bne :+
+        inc save_ptr+1
+:       inc ed_scr
+        bne :+
+        inc ed_scr+1
+:       lda cb_cnt
+        bne :+
+        dec cb_cnt+1
+:       dec cb_cnt
+        jmp @lp
+@r:     rts
+.endproc
+
+; ── gb_clip_copy — In: ed_tmp = n, C=1: add a CR.  C=1 out: the n bytes
+; before the cursor (and the CR) are the clipboard, below buf_base; C=0:
+; it would reach below BUF_FLOOR, nothing changed.
+.proc gb_clip_copy
+        lda #0
+        rol
+        sta cb_cr
+        lda buf_base            ; the new clip_base: buf_base - n - cr
+        sec
+        sbc ed_tmp
+        tay
+        lda buf_base+1
+        sbc ed_tmp+1
+        tax
+        bcc @no                 ; n > buf_base
+        tya
+        sec
+        sbc cb_cr
+        bcs :+
+        dex
+:       cpx #>BUF_FLOOR
+        bcc @no                 ; below the floor (page-aligned)
+        sta clip_base
+        sta ed_scr
+        stx clip_base+1
+        stx ed_scr+1
+        jsr _back_n
+        jsr _xfer
+        lda cb_cr
+        beq :+
+        lda #$0D
+        ldy #0
+        FAR_STA ed_scr
+:       jsr _src_bot
+        sec
+        rts
+@no:    clc
+        rts
+.endproc
+
+; ── gb_delete — In: ed_tmp = n.  The n bytes before the cursor deleted,
+; ed_total_lines less their CRs, ed_dirty set.
+.proc gb_delete
+        jsr _back_n
+        lda save_ptr            ; gap_lo back; the bytes counted in place
+        sta gap_lo
+        sta ed_scr
+        lda save_ptr+1
+        sta gap_lo+1
+        sta ed_scr+1
+        jsr _xfer
+        lda ed_total_lines
+        sec
+        sbc cb_crs
+        sta ed_total_lines
+        lda ed_total_lines+1
+        sbc cb_crs+1
+        sta ed_total_lines+1
+        lda #1
+        sta ed_dirty
+        rts
+.endproc
+
+; ── gb_clip_put — C=1: the clipboard's bytes inserted at the cursor (one
+; gb_insert each; the growth may move the clipboard, so its pointer is
+; taken afresh per byte), the clipboard kept; C=0: empty, or the gap and
+; the growth left cannot hold it — nothing changed.
+.proc gb_clip_put
+        lda buf_base            ; cb_len = the clipboard's length
+        sec
+        sbc clip_base
+        sta cb_len
+        lda buf_base+1
+        sbc clip_base+1
+        sta cb_len+1
+        ora cb_len
+        beq @no
+        lda gap_hi              ; room = the gap + the pages it can grow
+        sec
+        sbc gap_lo
+        tax
+        lda gap_hi+1
+        sbc gap_lo+1
+        clc
+        adc clip_base+1
+        bcs @fits               ; past 64 K: room enough
+        sec
+        sbc #>BUF_FLOOR
+        cmp cb_len+1
+        bne :+
+        cpx cb_len
+:       bcc @no
+@fits:  lda #0
+        sta cb_cnt
+        sta cb_cnt+1
+@lp:    lda clip_base
+        clc
+        adc cb_cnt
+        sta ed_scr
+        lda clip_base+1
+        adc cb_cnt+1
+        sta ed_scr+1
+        FAR_BANK ed_scr, BANK_SRC
+        ldy #0
+        FAR_LDA ed_scr
+        jsr gb_insert
+        inc cb_cnt
+        bne :+
+        inc cb_cnt+1
+:       lda cb_cnt
+        cmp cb_len
+        bne @lp
+        lda cb_cnt+1
+        cmp cb_len+1
+        bne @lp
+        sec
+        rts
+@no:    clc
+        rts
+.endproc
+
+; ── gb_rev — In: save_ptr = the first byte (the text before the gap),
+; A/X = the end (exclusive).  The bytes between reversed in place.
+; Clobbers A, Y, ed_scr, save_ptr.
+.proc gb_rev
+        sta ed_scr              ; ed_scr = the last byte
+        stx ed_scr+1
+        lda ed_scr
+        bne :+
+        dec ed_scr+1
+:       dec ed_scr
+        SRC_BANKS
+@lp:    lda save_ptr+1          ; while save_ptr < ed_scr
+        cmp ed_scr+1
+        bcc @swap
+        bne @r
+        lda save_ptr
+        cmp ed_scr
+        bcs @r
+@swap:  ldy #0
+        FAR_LDA save_ptr
+        pha
+        FAR_LDA ed_scr
+        FAR_STA save_ptr
+        pla
+        FAR_STA ed_scr
+        inc save_ptr
+        bne :+
+        inc save_ptr+1
+:       lda ed_scr
+        bne :+
+        dec ed_scr+1
+:       dec ed_scr
+        jmp @lp
+@r:     rts
 .endproc
 
 ; ══════════════════════════════════════════════════════════

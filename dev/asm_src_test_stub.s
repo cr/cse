@@ -46,7 +46,8 @@
         .export __CODE_RUN__    : absolute = $4000
 
         .import asm_assemble
-        .importzp buf_base
+        .export clip_base               ; the workspace's bound (gap_buffer.s
+                                        ; not linked: the stub's own)
 
 HEAP_START = $4000          ; symbol-table heap (above all code/BSS)
 CPU_PORT   = $01
@@ -63,6 +64,8 @@ _test_src_buf:  .res 2048   ; source: NUL-terminated lines, $FF = EOF
 _bank_witness:  .res 1      ; OR of $01 at every ed_read_line call
                             ; (placed last so test_src_buf offset is unchanged)
 _warn_witness:  .res 1      ; count of log_open(LOG_WARN) calls
+clip_base:      .res 2      ; the workspace's upper bound (production:
+                            ; the clipboard's base, gap_buffer.s)
 
 ; ── CODE ──────────────────────────────────────────────────────────────────────
 .segment "CODE"
@@ -79,9 +82,9 @@ asm_src_test_entry:
         sta _src_done
         sta _bank_witness       ; reset witnesses to 0
         sta _warn_witness
-        sta buf_base            ; bundle workspace: $0800..$DFFF (the
-        lda #>$E000             ; production buf_base comes from the
-        sta buf_base+1          ; gap buffer; asm_src emits below it)
+        sta clip_base           ; bundle workspace: $0800..$DFFF (the
+        lda #>$E000             ; production clip_base comes from the
+        sta clip_base+1         ; gap buffer; asm_src emits below it)
         lda #<$0800             ; default origin
         ldx #>$0800
         jsr asm_assemble        ; A/X = error count

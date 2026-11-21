@@ -27,6 +27,7 @@
         .import ed_ensure_init
         .import gb_insert, gb_backspace
         .import gb_cursor_left, gb_cursor_right, gb_home
+        .import gb_clip_copy, gb_delete, gb_clip_put, gb_rev, clip_base
         .import check_buf_end
         .import ed_total_lines
         .import update_workend
@@ -92,6 +93,8 @@ save_ptr = read_ptr
 .segment "BSS"
 
 ed_cur_line:    .res 2          ; cursor line (0-based)
+ed_mark1:       .res 2          ; the mark's line + 1 (0: no mark; BSS-zero) —
+                                ;   right after ed_cur_line: _sel_redraw's loop
 ed_cur_col:     .res 1          ; cursor visual column (0-based)
 ed_top_line:    .res 2          ; line number at screen row 0
 ; ed_total_lines lives in gap_buffer.s (L3) — line count is
@@ -105,6 +108,11 @@ _load_overflow: .res 1         ; sticky: set if any insert during load
 save_phase:     .res 1          ; 0=pre-gap, 1=post-gap
 repl_cur_x:     .res 1          ; saved REPL cursor X
 repl_cur_y:     .res 1          ; saved REPL cursor Y
+rl_row:         .res 1          ; ed_render_line: its row
+sel_lo:         .res 2          ; the selected lines (_select): the first
+sel_hi:         .res 2          ;   and the last
+sel_l0:         .res 2          ; ed_handle_key: ed_cur_line at its start
+sel_m0:         .res 2          ;   and ed_mark1 (the same order)
 ; src_top / src_bot live in gap_buffer.s (L3) — they describe the
 ; buffer bounds and move with gb_ensure_room's allocation.
 
@@ -114,6 +122,14 @@ repl_cur_y:     .res 1          ; saved REPL cursor Y
 ; Hex digit table for status bar (screen codes, OR'd with $80 for reverse)
 st_hx:  .byte $30,$31,$32,$33,$34,$35,$36,$37
         .byte $38,$39,$01,$02,$03,$04,$05,$06
+
+; The keys the mark survives (the first 8: _mark_policy) and, from the
+; 6th, the clipboard keys C= (MEGA) + B X C V K J in ed_clip_key's order
+; (editor.md § Clipboard and line moves).
+ed_keys:
+        .byte CH_CURS_UP, CH_CURS_DOWN, CH_CURS_LEFT, CH_CURS_RIGHT, CH_HOME
+clip_keys:
+        .byte $BF, $BD, $BC, $BE, $A1, $B5
 
 ; ── CODE ─────────────────────────────────────────────────────
 .segment "CODE"
@@ -213,6 +229,8 @@ _ed_cur_row:
         sta ed_cur_col
         sta ed_top_line
         sta ed_top_line+1
+        sta ed_mark1
+        sta ed_mark1+1
         jmp update_workend      ; publish workend; tail-call
 .endproc
 
@@ -298,6 +316,7 @@ _ed_cur_row:
 ; Output: A = 1 if more text, 0 if EOF. ed_scr updated.
 ; Clobbers: A, X, Y
 .proc ed_render_line
+        stx rl_row              ; the row, for the selection's inversion
         ; Setup screen pointer in ed_tmp
         lda scr_lo,x
         sta ed_tmp
@@ -413,6 +432,7 @@ _ed_cur_row:
 :       cmp #$0D
         bne @skip_rest
 @pad_done:
+        jsr _sel_row            ; a selected line: the row inverted
         jsr skip_gap_scr
         jsr check_buf_end
         bcs @ret_eof
@@ -705,12 +725,12 @@ _ed_cur_row:
         lda scr_hi,x
         adc #0
         sta ed_scr+1
-        ; val = buf_base - 1
-        lda buf_base
+        ; val = clip_base - 1 (workend: below the text and its clipboard)
+        lda clip_base
         sec
         sbc #1
         sta ed_tmp
-        lda buf_base+1
+        lda clip_base+1
         sbc #0
         sta ed_tmp+1
 .else
@@ -1465,11 +1485,458 @@ _ed_cur_row:
         jmp ed_mark_edited
 .endproc
 
+; ── The clipboard and the line moves (editor.md § Clipboard and line
+; moves) ─────────────────────────────────────────────────────────────
+
+.segment "BSS"
+cb_line:   .res 2               ; _to_line's target / the line count before a paste
+cb_sl:     .res 2               ; copy: the cursor's line to return to
+cb_col:    .res 1               ; a saved ed_cur_col / _view_fix: rows to walk back
+cb_s:      .res 2               ; a start in the text
+cb_eof:    .res 1               ; the selection ends the text (no CR after it)
+cb_t:      .res 2               ; _sel_row: the row's line; _select: the mark's
+.segment "CODE"
+
+; ── _sel_row — the row just drawn (rl_row; ed_tmp its screen start)
+; inverted when its line, ed_top_line + rl_row, is selected (sel_lo ..
+; sel_hi while a mark is set).  Clobbers A, Y.
+.proc _sel_row
+        lda ed_mark1
+        ora ed_mark1+1
+        beq @r
+        lda ed_top_line
+        clc
+        adc rl_row
+        sta cb_t
+        lda ed_top_line+1
+        adc #0
+        sta cb_t+1
+        lda cb_t                ; line < sel_lo → not selected
+        cmp sel_lo
+        lda cb_t+1
+        sbc sel_lo+1
+        bcc @r
+        lda sel_hi              ; sel_hi < line → not selected
+        cmp cb_t
+        lda sel_hi+1
+        sbc cb_t+1
+        bcc @r
+        ldy LAST_COL
+@lp:    FAR_LDA ed_tmp
+        ora #$80
+        FAR_STA ed_tmp
+        dey
+        bpl @lp
+@r:     rts
+.endproc
+
+; ── _select — sel_lo / sel_hi: the mark's line to the cursor's, either
+; order, or the cursor's line without a mark.  Clobbers A.
+.proc _select
+        ldx #1                  ; sel_lo = sel_hi = the cursor's line
+@c:     lda ed_cur_line,x
+        sta sel_lo,x
+        sta sel_hi,x
+        dex
+        bpl @c
+        lda ed_mark1
+        ora ed_mark1+1
+        beq @r
+        lda ed_mark1            ; cb_t = the mark's line
+        sec
+        sbc #1
+        sta cb_t
+        lda ed_mark1+1
+        sbc #0
+        sta cb_t+1
+        lda cb_t                ; the mark ≥ the cursor's: the last, else the first
+        cmp ed_cur_line
+        lda cb_t+1
+        sbc ed_cur_line+1
+        ldx #sel_hi - sel_lo
+        bcs :+
+        ldx #0
+:       lda cb_t
+        sta sel_lo,x
+        lda cb_t+1
+        sta sel_lo+1,x
+@r:     rts
+.endproc
+
+; ── _mark_policy — A = the key: unless it is one of ed_keys' first 8
+; (the cursor keys, HOME, and mark, cut, copy, which use the mark), the
+; mark is cleared.  Clobbers X.
+.proc _mark_policy
+        ldx #7
+@kk:    cmp ed_keys,x
+        beq @r
+        dex
+        bpl @kk
+        bmi _mark_clear         ; always
+@r:     rts
+.endproc
+; ── _mark_clear — no mark (the redraw at the key's end shows it).
+_mark_clear:
+        ldx #0
+        stx ed_mark1
+        stx ed_mark1+1
+        rts
+
+; ── _sel_redraw — the selection's bounds; the view redrawn when the key
+; changed the mark, or moved the cursor to another line while a mark is
+; set (the inverted selection follows).  Clobbers A, X, Y, ed_scr, ed_tmp.
+.proc _sel_redraw
+        jsr _select
+        ldx #3                  ; the line or the mark changed?
+@cmp:   lda ed_cur_line,x
+        cmp sel_l0,x
+        bne @diff
+        dex
+        bpl @cmp
+@r:     rts
+@diff:  lda ed_mark1            ; a mark now or before: redraw
+        ora ed_mark1+1
+        ora sel_m0
+        ora sel_m0+1
+        beq @r
+        jmp ed_render
+.endproc
+
+; ── _to_line — the cursor to col 0 of line A/X (cb_line), or of the
+; last line when there are fewer.  Clobbers A, X, Y, ed_tmp, ed_scr.
+.proc _to_line
+        sta cb_line
+        stx cb_line+1
+        jsr gb_home
+        lda #0
+        sta ed_cur_col
+@up:    lda cb_line             ; target < cur → up
+        cmp ed_cur_line
+        lda cb_line+1
+        sbc ed_cur_line+1
+        bcs @down
+        jsr ed_cursor_up
+        jmp @up
+@down:  lda ed_cur_line         ; cur < target → down, while there is one
+        cmp cb_line
+        lda ed_cur_line+1
+        sbc cb_line+1
+        bcs @r
+        jsr ed_cursor_down
+        bcs @down
+@r:     rts
+.endproc
+
+; ── _line_end — the cursor right to its line's end (a CR or the text's
+; end).  Clobbers A, Y.
+.proc _line_end
+@lp:    ldy #0
+        lda gap_hi+1
+        cmp #>BUF_END
+        bne :+
+        lda gap_hi
+        cmp #<BUF_END
+        beq @r                  ; the text's end
+:       FAR_LDA gap_hi
+        cmp #$0D
+        beq @r
+        jsr gb_cursor_right
+        jmp @lp
+@r:     rts
+.endproc
+
+; ── _here / _goto — the cursor's place kept (cb_sl, cb_col) / gone back
+; to (cb_sl's line, cb_col's column).  _goto clobbers A, X, Y, ed_tmp,
+; ed_scr.
+_here:  lda ed_cur_line
+        sta cb_sl
+        lda ed_cur_line+1
+        sta cb_sl+1
+        lda ed_cur_col
+        sta cb_col
+        rts
+_goto:  lda cb_sl
+        ldx cb_sl+1
+        jsr _to_line
+        lda cb_col
+        jmp advance_to_vcol
+
+; ── _view_fix — the view after a move of lines, moved as little as it
+; can (editor.md § Clipboard and line moves): kept when the cursor's
+; line is still in it, else scrolled until that line is on the top row
+; (above) or the bottom row (below); ed_top_ptr walked back from the
+; cursor's line.  The full redraw comes
+; at the key's end (sel_m0 made to differ).  C=1.
+; Clobbers A, X, Y, ed_tmp, ed_scr.
+.proc _view_fix
+        lda #$FF                ; the key's end redraws (_sel_redraw)
+        sta sel_m0+1
+        jsr _ed_cur_row         ; A = cur - top (low), C from it
+        tax
+        lda ed_cur_line+1
+        sbc ed_top_line+1
+        bcc @above              ; cur < top
+        bne @below              ; 256 or more rows below
+        cpx ED_ROWS
+        bcc @walk               ; in view: the top kept
+@below: ldx ED_ROWS             ; below: onto the bottom row
+        dex
+        bne @move               ; (always: ED_ROWS > 1)
+@above: ldx #0                  ; above: onto the top row
+@move:  stx cb_col              ; top = cur - its row
+        lda ed_cur_line
+        sec
+        sbc cb_col
+        sta ed_top_line
+        lda ed_cur_line+1
+        sbc #0
+        sta ed_top_line+1
+@walk:  stx cb_col              ; rows to walk back
+        jsr find_line_start     ; ed_scr = the cursor's line's start
+@back:  lda cb_col
+        beq @set
+        jsr prev_line_start
+        dec cb_col
+        jmp @back
+@set:   lda ed_scr
+        sta ed_top_ptr
+        lda ed_scr+1
+        sta ed_top_ptr+1
+        sec                     ; done (ed_clip_key's C)
+        rts
+.endproc
+
+; ── _sel_bytes — the selected lines as the bytes before the cursor: the
+; cursor to the start of the line after them (or to the text's end:
+; cb_eof = 1), cb_s their start, ed_tmp their count; the mark cleared.
+.proc _sel_bytes
+        jsr _select
+        jsr _mark_clear
+        lda sel_lo
+        ldx sel_lo+1
+        jsr _to_line
+        lda gap_lo
+        sta cb_s
+        lda gap_lo+1
+        sta cb_s+1
+        lda sel_hi              ; the line after the last
+        ldx sel_hi+1
+        clc
+        adc #1
+        bcc :+
+        inx
+:       jsr _to_line
+        lda #0
+        sta cb_eof
+        lda ed_cur_line         ; not there: the last line, to its end
+        cmp cb_line
+        bne :+
+        lda ed_cur_line+1
+        cmp cb_line+1
+        beq @n
+:       jsr _line_end
+        inc cb_eof
+@n:     lda gap_lo              ; ed_tmp = gap_lo - cb_s
+        sec
+        sbc cb_s
+        sta ed_tmp
+        lda gap_lo+1
+        sbc cb_s+1
+        sta ed_tmp+1
+        rts
+.endproc
+
+.ifdef PLATFORM_M65
+.segment "KCODE"                ; cold code (in the open on m65)
+.endif
+; ── ed_clip_key — X = the key's index in clip_keys.  C=1 done, C=0
+; refused (ed_handle_key blips).
+.proc ed_clip_key
+        lda @hi,x
+        pha
+        lda @lo,x
+        pha
+        rts
+@lo:    .lobytes @mark-1, @cut-1, @copy-1, @paste-1, @up-1, @down-1
+@hi:    .hibytes @mark-1, @cut-1, @copy-1, @paste-1, @up-1, @down-1
+
+        ; ── C=+B: the mark on the cursor's line, or cleared there
+@mark:  lda ed_cur_line
+        clc
+        adc #1
+        tax
+        lda ed_cur_line+1
+        adc #0
+        cpx ed_mark1
+        bne @set
+        cmp ed_mark1+1
+        bne @set
+        lda #0                  ; on the marked line: clear
+        tax
+@set:   stx ed_mark1
+        sta ed_mark1+1
+        sec
+        rts
+
+        ; ── C=+X: cut — copied, then deleted
+@cut:   jsr _sel_bytes
+        lsr cb_eof              ; C = at the end: add the CR
+        php
+        jsr gb_clip_copy
+        bcs :+
+        plp                     ; no room: refused
+        clc
+        rts
+:       jsr gb_delete           ; ed_tmp still the count
+        lda sel_lo
+        sta ed_cur_line
+        lda sel_lo+1
+        sta ed_cur_line+1
+        plp
+        bcc @col0
+        lda sel_lo              ; at the end: the CR before them goes
+        ora sel_lo+1
+        beq @col0
+        jsr gb_backspace
+        jsr @prev
+        jsr gb_home
+@col0:  lda #0
+        sta ed_cur_col
+        jmp _view_fix
+
+        ; ── C=+C: copy; the cursor returns
+@copy:  jsr _here               ; cb_sl / cb_col = the cursor's place
+        jsr _sel_bytes
+        lsr cb_eof
+        jsr gb_clip_copy
+        php
+        jsr _goto               ; back there
+        jsr _view_fix           ; the gap went there and back
+        plp
+        rts
+
+        ; ── C=+V: paste above the cursor's line
+@paste: jsr _here
+        jsr gb_home
+        lda ed_total_lines
+        sta cb_line
+        lda ed_total_lines+1
+        sta cb_line+1
+        jsr gb_clip_put
+        bcc @undo
+        lda ed_cur_line         ; its line moved down by the pasted lines
+        clc
+        adc ed_total_lines
+        tax
+        lda ed_cur_line+1
+        adc ed_total_lines+1
+        tay
+        txa
+        sec
+        sbc cb_line
+        sta ed_cur_line
+        tya
+        sbc cb_line+1
+        sta ed_cur_line+1
+        jmp @col0
+@undo:  jsr _goto               ; refused: the cursor back
+@no:    clc
+        rts
+
+        ; ── C=+K / C=+J: swap with the line above / below (the CRs stay);
+        ; the cursor then goes to its line's new place, its column kept
+@up:    lda ed_cur_line
+        ora ed_cur_line+1
+        beq @no                 ; line 1
+        jsr _here
+        jsr @dec_sl             ; its line's new place: one up
+        jmp @swap
+@down:  lda ed_cur_line         ; the last line?
+        clc
+        adc #1
+        tax
+        lda ed_cur_line+1
+        adc #0
+        cpx ed_total_lines
+        sbc ed_total_lines+1
+        bcs @no
+        jsr _here
+        inc cb_sl               ; one down, and the cursor onto that line
+        bne :+
+        inc cb_sl+1
+:       jsr _line_end
+        jsr gb_cursor_right
+        inc ed_cur_line
+        bne @swap
+        inc ed_cur_line+1
+@swap:  jsr _line_end           ; the lower line L's end; ed_cur_line is L's
+        jsr find_line_start     ; cb_t = L's start
+        lda ed_scr
+        sta cb_t
+        lda ed_scr+1
+        sta cb_t+1
+        jsr prev_line_start     ; cb_s = U's start (the line above L)
+        lda ed_scr
+        sta cb_s
+        lda ed_scr+1
+        sta cb_s+1
+        jsr @from_s             ; U reversed (up to its CR),
+        lda cb_t
+        ldx cb_t+1
+        sec
+        sbc #1
+        bcs :+
+        dex
+:       jsr gb_rev
+        lda cb_t                ; L reversed,
+        sta save_ptr
+        lda cb_t+1
+        sta save_ptr+1
+        jsr @to_gap
+        jsr @from_s             ; then U CR L reversed: L CR U
+        jsr @to_gap
+        lda #1                  ; an edit (gb_rev leaves ed_dirty alone)
+        sta ed_dirty
+        jsr _goto
+        jmp _view_fix
+
+@to_gap:                        ; gb_rev up to the cursor
+        lda gap_lo
+        ldx gap_lo+1
+        jmp gb_rev
+@from_s:                        ; save_ptr = cb_s
+        lda cb_s
+        sta save_ptr
+        lda cb_s+1
+        sta save_ptr+1
+        rts
+@dec_sl:
+        lda cb_sl
+        bne :+
+        dec cb_sl+1
+:       dec cb_sl
+        rts
+@prev:  lda ed_cur_line         ; ed_cur_line - 1
+        bne :+
+        dec ed_cur_line+1
+:       dec ed_cur_line
+        rts
+.endproc
+.segment "CODE"
+
 ; ── ed_handle_key — main keystroke dispatcher ─────────────────
 ; Input: A = PETSCII key code
 .proc ed_handle_key
         ; Save key
         sta @key
+        ldx #3                  ; the cursor's line and the mark before the
+@sv:    lda ed_cur_line,x       ;   key (_sel_redraw)
+        sta sel_l0,x
+        dex
+        bpl @sv
+        lda @key
+        jsr _mark_policy        ; other keys than the cursor keys clear the mark
+                                ;   (A kept)
 
         ; ── CH_CURS_LEFT ──────────────────────────
         cmp #CH_CURS_LEFT
@@ -1820,6 +2287,11 @@ _ed_cur_row:
         ; ── Default: printable character ──────────
 @not_tab:
         lda @key
+        ldx #5                  ; a clipboard key?
+@ck:    cmp clip_keys,x
+        beq @clip
+        dex
+        bpl @ck
         ; Check printable: $20-$7E or $C1-$DA
         cmp #$20
         bcc @repos_jmp          ; control char → ignore
@@ -1864,6 +2336,8 @@ _ed_cur_row:
         jsr ed_mark_edited
         jmp @repos
 
+@clip:  jsr ed_clip_key           ; X = the key's index
+        bcs @repos
 @reject:
         ; Audible feedback for refused input (left-wall
         ; backspace, etc.).  Falls through to @repos so the cursor
@@ -1875,6 +2349,7 @@ _ed_cur_row:
         ; and saves 3 B.  Branches keep targeting @repos_jmp — the
         ; label is an alias for the first byte of @repos.
 @repos:
+        jsr _sel_redraw         ; the inverted selection follows
         jmp ed_sync_cursor
 
         .segment "BSS"      ; CODE stays read-only

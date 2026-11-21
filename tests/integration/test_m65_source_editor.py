@@ -212,17 +212,36 @@ class M65Ed(Ed):
     def cell(self, name):
         return self.s.v(name)
 
+    def word(self, name):
+        return self.s.w(name)
+
     def row(self, r):
         return raw(self.s, r)
 
     def cursor(self):
         return self.s.v("io_cy"), self.s.v("io_cx")
 
+    def status(self):
+        return raw(self.s, self.s.height - 3)
+
 
 @pytest.mark.parametrize("name,cap,case", CAP_CASES,
                          ids=[f"{n}-{c.name}" for n, _, c in CAP_CASES])
 def test_the_line_cap(s, name, cap, case):
     M65Ed(s, name, cap).check(case)
+
+
+import editor_clip                                 # noqa: E402
+
+CLIP_CASES = [("80x25", 79, c) for c in editor_clip.CASES] + \
+    [("40x25", 39, c) for c in editor_clip.CASES if c.name.startswith(("cut a block", "swap up"))]
+
+
+@pytest.mark.parametrize("name,cap,case", CLIP_CASES,
+                         ids=[f"{n}-{c.name}" for n, _, c in CLIP_CASES])
+def test_the_clipboard(s, name, cap, case):
+    """editor.md § Clipboard and line moves, MEGA + the letters."""
+    editor_clip.check(M65Ed(s, name, cap), case)
 
 
 @pytest.mark.parametrize("name,cap", CAPS)
@@ -352,3 +371,15 @@ def test_the_tab_key_types_what_shift_space_types_at_the_prompt(s):
     tab = raw(s, cy)
     s.keys(bytes([0x14] * 3) + b"X" + bytes([0xA0]) + b"Y")    # DEL x3, again
     assert raw(s, cy) == tab
+
+
+# ── random key sequences against a line model (editor_seq.py, shared
+# with the c64; testing.md Principle 22) ─────────────────────────────
+
+import editor_seq                                  # noqa: E402
+
+
+@pytest.mark.parametrize("name,rows,lines,seed", [("80x25", 22, 40, 100), ("40x25", 22, 40, 101),
+                                                  ("80x50", 47, 80, 102)])
+def test_key_sequences(s, name, rows, lines, seed):
+    editor_seq.run(M65Ed(s, name, MODES[name][1] - 1), seed, lines, 200, rows)

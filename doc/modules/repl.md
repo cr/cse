@@ -932,7 +932,7 @@ Splash mode prints only the free rows:
     ; low  0334-03ff   204b free
     ; work 0800-XXXX NNNNNb free
 
-The work row ends at `buf_base - 1` and follows the build's runtime
+The work row ends at `clip_base - 1` (`workend`) and follows the build's runtime
 start and the loaded source.
 
 On m65 the splash's free rows are the user's regions with their
@@ -995,7 +995,7 @@ same constant.
     ; cse  e000-f8d9 banked
     ; rom  f8da-ffff kernal
 
-The work row spans $0800 to `buf_base - 1`; the `src` row is the
+The work row spans $0800 to `clip_base - 1`; the `src` row is the
 source text (`src_bot`..`src_top - 1`, with `ed_total_lines`); the
 first `cse` row runs from `cse_start` (the runtime start) to
 `cse_end - 1`.  The `zp`, `low` and `work` rows are computed in

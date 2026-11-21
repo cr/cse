@@ -348,7 +348,7 @@ REPL's call chain.
 4. `step_next_pc`.  Both results 0 (a BRK at `brk_pc` under `t`) →
    `post_run_cleanup` (panel again, no user code runs).
 5. **Workspace gate:** every nonzero target must satisfy
-   `$0800 ≤ addr < buf_base` on c64 (on m65 reach user memory, § `b`)
+   `$0800 ≤ addr < clip_base` on c64 (on m65 reach user memory, § `b`)
    or be `brk_stub`; else the step is
    undone (`step_cleanup`: `step_state`, step slots, the disabled
    breakpoint enabled again) and `;!range` is printed — the session
@@ -504,7 +504,7 @@ b -N            delete slot N (1-8)
 b *             delete all
 ```
 
-`b ADDR` requires `$0800 ≤ addr < buf_base` on c64 (m65: user
+`b ADDR` requires `$0800 ≤ addr < clip_base` on c64 (m65: user
 memory, above; else `;?range`) and
 reuses the slot that already holds the address; a full table is
 `;?full`.  Output: `; bp 1: $1010` (set, list), `; bp 3: $----`
@@ -627,7 +627,7 @@ session can no longer be resumed.
 - Breakpoints and step BRKs work only in user memory: `b` refuses
   other addresses (`;?range`) and every step — chained ones included
   — refuses targets outside it (`;!range`).  On c64 that is the
-  workspace, `WORKSTART ≤ addr < buf_base` (`$0800` up;
+  workspace, `WORKSTART ≤ addr < clip_base` (`$0800` up;
   [platform_layer.md § Constants](../platform_layer.md#constants));
   on m65 it is the byte the address reaches through the program's
   bank state (`bp_range_check` → `bp_cpu_ok` → `bp_flat_ok`), which

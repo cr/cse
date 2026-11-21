@@ -1224,7 +1224,7 @@ class TestBadExpressionAborts:
         set_cur_addr(cpu, rsyms, 0x3000)
         set_word(cpu, cpu.sym("brk_pc"), 0x3000)
         cpu.memory[0x3000] = 0xEA            # NOP: a steppable insn
-        set_word(cpu, cpu.sym("buf_base"), 0x8000)  # workend for the gate
+        set_word(cpu, cpu.sym("clip_base"), 0x8000)  # workend+1 for the gate
         cpu.memory[rsyms.dbg_reason] = reason
         cpu.memory[cpu.sym("run_user_pending")] = 0
         cpu.memory[cpu.sym("cold_preview_done")] = 0

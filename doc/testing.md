@@ -1540,6 +1540,35 @@ tests are written, when they are written, and what they test.
     scroll mirrors, false for the cap, which had no c64 test from
     2026-04-19 until the escape seven months later.
 
+22. **Interactive state gets a model-based sequence test.**
+    *Applies to modules driven by a stream of commands whose state
+    persists between them — an editor's keys, a monitor's commands,
+    a protocol's messages.*
+
+    Besides the contract matrix (each command from a known start,
+    Principle 11), such a module gets a test that drives seeded random
+    command sequences and checks the whole observable state after
+    every command against a small reference model of the contract —
+    the text as lines, a cursor, a clipboard — not of the algorithm.
+    The state one command leaves (a clipboard filled, a mark set, a
+    view scrolled) is then the next command's start, which a matrix
+    that begins every case from a load never reaches.  The seeds are
+    fixed; a failure names its seed, its step and the commands before
+    it, and its shortest form joins the matrix.  The model is a
+    statement of the contract, so it is not a mirror test (§
+    Anti-patterns): it never re-implements the ASM's routine.
+
+    Cautionary example (clipboard, Escape Analysis 2026-11-21): a
+    hardware test found a line swap corrupting the text after a copy
+    and paste, and the view jumping to the top after a paste on the
+    bottom row.  Every swap case of `editor_clip.py` began from a load,
+    where the clipboard is empty, and every case ran on 3–5 lines at
+    the top of the view.  The swap's cursor moves kept their count in
+    `ed_tmp`, which `gb_cursor_left` used as scratch only while a
+    clipboard was present.  A random key-sequence test against a line
+    model (`editor_seq.py`) found the first within 15 keys of every
+    seed and the second within 200.
+
 ## Anti-patterns
 
 These exist in the current test tree.  Don't add more of them;

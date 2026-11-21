@@ -377,6 +377,67 @@ Defined scope, needs work.
       (single steps are sub-microsecond), but a `t100`-class
       batch could surface aggregate time.
 
+### Clipboard and line moves
+
+- [x] **Copy, cut, paste and line swaps in the editor** — done
+  2026-11-21 (operator: "the last feature the m65 port really needs";
+  both platforms): editor.md § Clipboard and line moves, gap_buffer.md
+  § The clipboard in the gap.  Decisions (approved):
+  - **P-C-1 Keys.**  C= (MEGA) + B mark, + X cut, + C copy, + V paste,
+    + K / + J swap with the line above / below: plain `GETIN` codes
+    `$BF $BD $BC $BE $A1 $B5`, the same on both platforms — no
+    modifier read (operator: no low-level keyboard code).  CTRL+X / C
+    / V reach both too (`$18 $03 $16`), but CTRL+C is RUN/STOP's `$03`;
+    C=+CRSR is SHIFT+CRSR and CTRL+CRSR no key; K / J are vi's.
+  - **P-C-2 Selection.**  Whole lines, the mark's to the cursor's.  As
+    built: the cursor keys and HOME keep the mark, cut and copy use and
+    clear it, every other key clears it.  The selected lines are shown
+    inverted (operator, 2026-11-21: "block selection needs a visual
+    invert of the selected area, not just a marker in the bar"); the
+    first build's status-bar `m` is gone.
+  - **P-C-3 The clipboard lives below the text** — `[clip_base,
+    buf_base)`, the bottom of the gap buffer's region, carried down by
+    its growth; cursor moves and inserts never see it.  As first built
+    it floated inside the gap (`clip_lo` / `clip_len`, moved out of a
+    write's way by rotations, cut free by moving `gap_hi`); the size
+    pass moved it (operator, 2026-11-21: the floating clipboard taxed
+    every cursor move and insert, ~430 B of the gap buffer's ~1 000).
+    On the c64 the workspace's bound is `clip_base` (`workend`, the
+    emit gate, `b`, `free:`).
+  - **P-C-4 The document wins** (operator): an insert that finds no
+    room drops the clipboard and grows into its bytes; a paste, whose
+    source it is, is refused instead.
+  - **P-C-5** Paste above the cursor's line (it stays on its line);
+    cut is copy + delete (`gb_clip_copy`, `gb_delete`), cutting the last
+    line adding the clipboard's CR; swaps exchange line contents in
+    place by three reversals (`gb_rev`) — no free byte needed.
+  - **P-C-6** Editor only; the m65 help popup lists the keys.
+  - **P-C-7 The view** after a cut, paste or swap moves as little as it
+    can, as the cursor keys move it (operator, a hardware test: a paste
+    or a swap down on the bottom row made the cursor's line the top one).
+  Escape Analysis (the hardware test of the build before the size
+  pass): a swap after a copy and paste reversed a line — the swap's
+  cursor moves counted in `ed_tmp`, which `gb_cursor_left` used as
+  scratch while a clipboard sat in the gap; gone with the clipboard
+  below the text, and caught now by the swaps-with-a-clipboard cases
+  and the sequences.  The view's jump was the documented rule
+  (`_view_fix`: off-view → top line); the doc now states the least
+  move.  Both escaped because every clipboard case began from a load
+  on a short text: testing.md Principle 22.
+  Sizes (release PRGs): c64-6510 21 164 → 22 479 B, c64-6502 20 816 →
+  22 131 B (+1 315; the first build took +2 225, the size pass — the
+  clipboard below the text, shared helpers, one key table, the
+  selection's bounds computed once — took 926 B off, the view's least
+  move added 16); m65 29 250 → 30 704 B.  On the way (operator):
+  the m65 code and data windows became one linker area and the help
+  text moved to the reserve 3.C000 (`58b4a1c`), so no code is placed
+  per window; KCODE stays the cold-code marker.
+  Tests: test_gap_buffer.py `TestClipboard`, `TestGbRev`;
+  editor_clip.py's matrix (the view on forty lines, swaps with a
+  clipboard present) on the c64 (test_editor.py, with the full-buffer
+  cases) and m65 (test_m65_source_editor.py); editor_seq.py's seeded
+  key sequences against a line model on both.
+
 ### Help
 
 - [x] **The m65 help popup** — done 2026-11-21 (operator's request):
@@ -3470,6 +3531,11 @@ then tests first, the code, the differential doc update, the commit.
   the code relies on it.
 
 ### CDD amendments — landed
+
+**2026-11-21 — the clipboard Escape Analysis** (operator, a hardware
+test; "approve"):
+- [x] ~~Interactive state gets a model-based sequence test~~ —
+  testing.md Principle 22; `editor_seq.py` on the c64 and m65.
 
 **2026-11-21 — the editor cap Escape Analysis** (operator, "land
 all four"):

@@ -136,7 +136,7 @@ ERR_RANGE = 7                   ; expr.s's rc 7
         .importzp ed_dirty
         .import ed_total_lines
         .import ed_read_rewind, ed_read_byte
-        .importzp buf_base
+        .import clip_base               ; gap_buffer.s: the workspace's bound (workend + 1)
 
 ; ── Imports: memory info ───────────────────────────────────
         .import cse_start, cse_end
@@ -1723,8 +1723,8 @@ try_addr_or_err:
 ;
 ; bp_range_check: addr must be in [workstart, workend].
 ;   workstart = WORKSTART (fixed); the upper bound is the workspace's
-;   (platform_layer.md § Constants): c64 buf_base (dynamic, workend =
-;   buf_base - 1).  Equivalently:  WORKSTART <= addr < the bound.
+;   (platform_layer.md § Constants): c64 clip_base (dynamic, workend =
+;   clip_base - 1: below the clipboard and the source text).  Equivalently:  WORKSTART <= addr < the bound.
 ;   m65: the address must be at least WORKSTART, then bp_cpu_ok takes
 ;   it through the program's bank state to its physical byte, which
 ;   must be user memory (0.2000-0.BFFF, 1.2000-1.F6FF, banks 4-5);
@@ -1778,11 +1778,12 @@ try_addr_or_err:
         ; state must be user memory (debugger.md § b; slice 3, F4).
         jmp bp_cpu_ok
 .else
-        ; Upper bound: addr < buf_base.
-        cpx buf_base+1
-        bcc @ok                 ; hi < buf_base.hi → in range
-        bne @oor                ; hi > buf_base.hi → out
-        cmp buf_base            ; hi == buf_base.hi → check lo
+        ; Upper bound: addr < clip_base (workend + 1: below the clipboard
+        ; and the source text).
+        cpx clip_base+1
+        bcc @ok                 ; hi < clip_base.hi → in range
+        bne @oor                ; hi > clip_base.hi → out
+        cmp clip_base           ; hi == clip_base.hi → check lo
         bcc @ok
 .endif
 @oor:   sec
@@ -3588,8 +3589,8 @@ set_run_mode:
 @set:
         ; Range-check: bp must land in [workstart, workend] —
         ; the user-code workspace.  bp_range_check enforces this
-        ; against the dynamic buf_base (editor source area starts
-        ; just above workend).
+        ; against the dynamic clip_base (the clipboard and the source
+        ; start just above workend).
         lda expr_val
         ldx expr_val+1
         jsr bp_range_check
@@ -4741,7 +4742,7 @@ prg_ok_done:
         jsr info_emit_rows
 
         ; ── Dynamic: free workspace ──
-        ; Free = $0800 to buf_base-1 (gap between output and source)
+        ; Free = $0800 to clip_base-1 (up to the clipboard and the source)
         lda #<str_tag_work
         sta rp_ptr2
         lda #>str_tag_work
@@ -4750,11 +4751,11 @@ prg_ok_done:
         sta rp_addr
         lda #>WORKSTART
         sta rp_addr+1
-        lda buf_base
+        lda clip_base
         sec
         sbc #1
         sta rp_cnt
-        lda buf_base+1
+        lda clip_base+1
         sbc #0
         sta rp_cnt+1
         jsr free_line

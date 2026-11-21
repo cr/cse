@@ -312,7 +312,7 @@ class TestBufferOverflow:
         filling via 30K+ gb_insert calls in emulation."""
         floor_lo = TestBufferOverflow.BUF_FLOOR & 0xFF
         floor_hi = (TestBufferOverflow.BUF_FLOOR >> 8) & 0xFF
-        for sym in ("buf_base", "gap_lo", "gap_hi"):
+        for sym in ("buf_base", "clip_base", "gap_lo", "gap_hi"):   # no clipboard
             addr = emu.sym(sym)
             emu.memory[addr]     = floor_lo
             emu.memory[addr + 1] = floor_hi
@@ -428,8 +428,8 @@ class TestBufferOverflow:
         column 0 of the new line — ed_cur_col matches the buffer."""
         emu = make_emu(cse_prg)
         floor = TestBufferOverflow.BUF_FLOOR
-        for sym, val in (("buf_base", floor), ("gap_lo", floor + 2),
-                         ("gap_hi", floor + 3)):
+        for sym, val in (("buf_base", floor), ("clip_base", floor),   # no clipboard
+                         ("gap_lo", floor + 2), ("gap_hi", floor + 3)):
             emu.write_word(emu.sym(sym), val)
         emu.memory[floor:floor + 4] = b"AB\x00\r"   # "AB" | 1-byte gap | CR
         emu.memory[emu.sym("ed_cur_col")] = 2
@@ -597,7 +597,7 @@ class TestEdDiskOnADrive:
         floor = emu.sym("__BUF_FLOOR__")
 
         def full(e):
-            for sym in ("buf_base", "gap_lo", "gap_hi"):
+            for sym in ("buf_base", "clip_base", "gap_lo", "gap_hi"):   # no clipboard
                 e.write_word(e.sym(sym), floor)
             e.remove_trap(e.sym("disk_load_seq"))
         emu.add_trap(emu.sym("disk_load_seq"), full)
@@ -761,10 +761,17 @@ class C64Ed(Ed):
         return n[0]
 
     def buffer(self):
-        return read_back(self.emu)
+        """The text, pre-gap then post-gap, read from memory (the reader is
+        test_gap_buffer.py's; read_back stops at 10 000 bytes)."""
+        e, m = self.emu, self.emu.memory
+        w = lambda name: m[e.sym(name)] | m[e.sym(name) + 1] << 8     # noqa: E731
+        return bytes(m[w("buf_base"):w("gap_lo")]) + bytes(m[w("gap_hi"):e.sym("__CODE_RUN__")])
 
     def cell(self, name):
         return self.emu.memory[self.emu.sym(name)]
+
+    def word(self, name):
+        return self.emu.read_word(self.emu.sym(name))
 
     def row(self, r):
         return [self.emu.memory[0x0400 + 40 * r + k] for k in range(40)]
@@ -772,7 +779,103 @@ class C64Ed(Ed):
     def cursor(self):
         return self.emu.memory[0xD6], self.emu.memory[0xD3]
 
+    def status(self):
+        return self.row(22)
+
 
 @pytest.mark.parametrize("case", CASES, ids=[c.name for c in CASES])
 def test_the_line_cap(cse_prg, case):
     C64Ed(cse_prg).check(case)
+
+
+# ── The clipboard and the line moves: editor.md § Clipboard and line
+# moves, its contract matrix (editor_clip.py, shared with m65) ────────
+
+import editor_clip                                 # noqa: E402
+from test_kernel_transition import session        # noqa: E402,F401  (the REPL check)
+
+
+@pytest.mark.parametrize("case", editor_clip.CASES, ids=[c.name for c in editor_clip.CASES])
+def test_the_clipboard(cse_prg, case):
+    editor_clip.check(C64Ed(cse_prg), case)
+
+
+# ── random key sequences against a line model (editor_seq.py, shared
+# with m65; testing.md Principle 22) ─────────────────────────────────
+
+import editor_seq                                  # noqa: E402
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_key_sequences(cse_prg, seed):
+    editor_seq.run(C64Ed(cse_prg), seed, 40, 200, 22)
+
+
+class TestClipboardFullBuffer:
+    """editor.md § Clipboard and line moves, *The document wins*: the
+    buffer one page above its floor with a 3-byte clipboard below the
+    text, which keeps the buffer from growing; the gap empty."""
+
+    CLIP = b"CD\r"
+
+    def _full(self, cse_prg, clip=True):
+        ed = C64Ed(cse_prg)
+        e, m = ed.emu, ed.emu.memory
+        ed.load(b"AA")
+        floor, end = e.sym("__BUF_FLOOR__"), e.sym("__CODE_RUN__")
+        base = floor + 0x100 if clip else floor
+        post = b"EF"
+        lo = end - len(post)
+        pre = bytearray(b"Z" * (lo - base))
+        for k in range(29, len(pre), 30):
+            pre[k] = 0x0D                                   # lines of 29
+        pre[-3:] = b"XYZ"                                    # a last pre line
+        m[base:lo] = pre
+        m[lo:end] = post
+        m[base - 3:base] = self.CLIP
+        w = lambda name, v: (m.__setitem__(e.sym(name), v & 0xFF),     # noqa: E731
+                             m.__setitem__(e.sym(name) + 1, v >> 8))
+        for zp, v in (("buf_base", base), ("gap_lo", lo), ("gap_hi", lo)):
+            w(zp, v)
+        w("clip_base", base - 3 if clip else base)
+        lines = bytes(pre).count(b"\r")
+        w("ed_total_lines", lines + 1)
+        w("ed_cur_line", lines)
+        w("ed_top_line", lines)
+        start = base + bytes(pre).rfind(b"\r") + 1
+        w("ed_top_ptr", start)
+        m[e.sym("ed_cur_col")] = lo - start
+        e.jsr(e.sym("ed_render"))
+        return ed, bytes(pre) + post
+
+    def clip(self, ed):
+        e, m = ed.emu, ed.emu.memory
+        w = lambda name: m[e.sym(name)] | m[e.sym(name) + 1] << 8     # noqa: E731
+        return bytes(m[w("clip_base"):w("buf_base")])
+
+    def test_typing_drops_the_clipboard(self, cse_prg):
+        ed, text = self._full(cse_prg)
+        assert ed.press(b"W") == 0
+        assert ed.buffer() == text[:-2] + b"W" + b"EF"
+        assert self.clip(ed) == b""
+
+    def test_a_paste_that_cannot_fit_is_refused(self, cse_prg):
+        ed, text = self._full(cse_prg)
+        assert ed.press(bytes([editor_clip.PASTE])) == 1
+        assert ed.buffer() == text
+        assert self.clip(ed) == self.CLIP
+
+    def test_without_a_clipboard_at_the_floor_typing_is_refused(self, cse_prg):
+        ed, text = self._full(cse_prg, clip=False)
+        assert ed.press(b"V") == 1
+        assert ed.buffer() == text
+
+
+def test_the_clipboard_keys_stay_characters_in_the_repl(session):
+    """editor.md § Clipboard and line moves: editor only — in the REPL
+    C=+X types its graphics character, as any other key."""
+    s = session
+    col = s.e.memory[0xD3]
+    s.keys(bytes([editor_clip.CUT]))
+    assert s.e.memory[0xD3] == col + 1
+    assert s.e.memory[0x0400 + 40 * s.e.memory[0xD6] + col] != 0x20
