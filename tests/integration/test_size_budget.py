@@ -27,9 +27,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # build → (release PRG, byte budget)
 BUDGET = {
-    "c64-6502":  (ROOT / "build/release/6502/cse-6502.prg", 20_817),
-    "c64-6510":  (ROOT / "build/release/6510/cse.prg",      21_165),
-    "m65-45gs02": (ROOT / "build/release/m65/cse-m65.prg",  27_087),
+    "c64-6502":  (ROOT / "build/release/6502/cse-6502.prg", 20_819),
+    "c64-6510":  (ROOT / "build/release/6510/cse.prg",      21_167),
+    "m65-45gs02": (ROOT / "build/release/m65/cse-m65.prg",  27_089),
 }
 
 
