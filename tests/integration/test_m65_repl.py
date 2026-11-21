@@ -1185,3 +1185,26 @@ def test_an_m_edit_that_carries_into_the_next_bank_lands_after_it(s):
     s.line("4.fffc:m 01 02 03 04 05 06 07 08")
     assert fpeek(s, 5, 0x0000, 4) == [5, 6, 7, 8]
     assert prompt(s) == "5.0004:"
+
+
+# ── a refused or cancelled `j` / `g` moves nothing (TODO § Bugs › Both
+#    platforms, fixed 2026-11-21) ─────────────────────────────────────
+
+def test_a_refused_far_start_leaves_the_current_address(s):
+    s.type("@ $3000")
+    s.type("j 4.8000")
+    s.find(r"^;\?range$")
+    assert prompt(s) == "3000:"
+
+
+@pytest.mark.parametrize("cmd", ["j $1234", "g"])
+def test_a_cancelled_start_leaves_the_current_address(s, cmd):
+    _assemble(s, "\t.org $3100\rmain:\trts\r")
+    s.poke(USER, [0xEA, 0x00, 0x00, 0x60])
+    s.type("j $3000")                               # a session at $3001
+    assert s.v("dbg_reason") == DBG_BRK
+    before = prompt(s)
+    s.start(cmd)
+    s.keys(b"N")
+    s.find(r"^;!go\? y/n")
+    assert prompt(s) == before

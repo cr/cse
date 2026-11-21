@@ -239,6 +239,10 @@ ta_flat:        .res 1          ; bit 7: the next try_expr reads an address
 ta_mode:        .res 1          ;   (try_addr_or_err); this call's copy
 .endif
 last_cmd:       .res 1          ; last command byte
+cur_save:       .res 2          ; `j` / `g`: cur_addr before the start
+.ifdef PLATFORM_M65
+cur_save_spc:   .res 3          ;   and its space (cur_flat, cur_bank)
+.endif
 block_size:     .res 2          ; block size for I/O (init by main.s)
 disk_name_buf:     .res FILENAME_MAX + 2   ; composed disk name (stem + optional ".")
 _verbatim_type:    .res 1          ; 0 / 's' / 'p' from strip_and_classify
@@ -3194,11 +3198,13 @@ hygiene_after_userland:
         sta warm_cont           ; replay line_buf after end-debug
         jmp cse_end_debug
 @cancel:
+        jsr cur_unstash         ; nothing changes (repl.md § `j`)
         jmp nl_clear
 @run:
 .ifdef PLATFORM_M65
         jsr start_bank          ; run_bank: a flat address's, or 0
         bcc :+
+        jsr cur_unstash         ; refused: nothing changes
         jmp dot_range
 :
 .endif
@@ -3211,6 +3217,36 @@ hygiene_after_userland:
         sta run_user_pending
         rts
 .endproc
+
+; ── cur_stash / cur_unstash — the current address (and on m65 its
+; space) saved by `j` / `g` before they set it, restored when cmd_jmp
+; cancels or refuses the start.  Clobbers A (and X on m65).
+cur_stash:
+        lda cur_addr
+        sta cur_save
+        lda cur_addr+1
+        sta cur_save+1
+.ifdef PLATFORM_M65
+        ldx #2
+@s:     lda cur_flat,x
+        sta cur_save_spc,x
+        dex
+        bpl @s
+.endif
+        rts
+cur_unstash:
+        lda cur_save
+        sta cur_addr
+        lda cur_save+1
+        sta cur_addr+1
+.ifdef PLATFORM_M65
+        ldx #2
+@u:     lda cur_save_spc,x
+        sta cur_flat,x
+        dex
+        bpl @u
+.endif
+        rts
 
 ; ── pre_userland_run — shared pre-flight for j/g/t/o ────────────────
 ; Newline + clreol so user CHROUT starts on a fresh row, plus a
@@ -5079,7 +5115,9 @@ prg_ok_done:
 @h_j:   ; j — jump/execute
         ; Same pattern as @h_at: parse+EOI-check, then apply.  Bare
         ; `j` jumps to cur_addr; an expression error (already printed
-        ; by try_expr) runs nothing.
+        ; by try_expr) runs nothing.  cur_stash: a start cmd_jmp
+        ; cancels or refuses leaves the current address as it was.
+        jsr cur_stash
 .ifdef PLATFORM_M65
         jsr try_addr_or_err     ; flat: a far start (repl.md § Far starts)
         bcc @j_none
@@ -5104,6 +5142,7 @@ prg_ok_done:
         rts                     ; error → no run
 
 @h_g:   ; g — go (sym_lookup "main")
+        jsr cur_stash           ; (as `j`)
         lda #<str_main
         sta sym_name
         lda #>str_main

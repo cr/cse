@@ -103,12 +103,6 @@ marked.
   listed: `4.ffff:d` prints no row and does not advance (reproduced);
   the bank carry happens only when an instruction ends exactly at
   `$10000`.
-- [ ] **A refused or cancelled `j` still moves the current address.**
-  `@h_j` stores `cur_addr` before `cmd_jmp`'s session gate and before
-  `start_bank`: `j 4.8000` answers `;?range` and the prompt becomes
-  `4.8000:` (m65, reproduced); in a resumable session `j $1234` then N
-  leaves `$1234` (c64, prober-reproduced) — repl.md: a cancel changes
-  nothing.
 - [ ] **`b -N` and `b *` take trailing garbage.**  `@delete_one` /
   `@clear_all` have no end-of-input check: `b -12` deletes slot 1 and
   prints `; bp 1 del`, `b *xyz` clears all (reproduced) — repl.md:
@@ -4456,6 +4450,12 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: `j` / `g` stash the current address, `cmd_jmp` restores it on a cancel or a refusal) **A refused or cancelled `j` still moves the current address.**
+  `@h_j` stores `cur_addr` before `cmd_jmp`'s session gate and before
+  `start_bank`: `j 4.8000` answers `;?range` and the prompt becomes
+  `4.8000:` (m65, reproduced); in a resumable session `j $1234` then N
+  leaves `$1234` (c64, prober-reproduced) — repl.md: a cancel changes
+  nothing.
 - [x] (fixed 2026-11-21: the sum's low word is kept; `m` also parses
   every byte before writing any) **An `m` edit that wraps leaves the current address at 0.**  On a
   carry past `$FFFF` the code sets `cur_addr` to 0, not addr + n:

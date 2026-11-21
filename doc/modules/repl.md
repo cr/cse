@@ -164,8 +164,8 @@ in zp.s; see [zp.md](zp.md) — both in zero page on c64; on m65
 
 ### Memory
 
-**BSS (86 bytes):** the c64 builds.  On m65 repl.o's BSS is 159
-bytes: the m65 rows below (23 bytes) and the wider `line_buf`,
+**BSS (88 bytes):** the c64 builds.  On m65 repl.o's BSS is 164
+bytes: the m65 rows below (26 bytes) and the wider `line_buf`,
 `rp_hexbuf` and `zp_stage_buf`.
 
 | Variable | Size | Purpose |
@@ -179,6 +179,8 @@ bytes: the m65 rows below (23 bytes) and the wider `line_buf`,
 | `fl_acc`, `fl_y` | 2 + 1 | m65: `parse_flat_ptr1` — the digits before the dot, the offset's first digit |
 | `ta_flat`, `ta_mode` | 1 + 1 | m65: bit 7 = the next `try_expr` reads an address (`try_addr_or_err`); this call's copy |
 | `last_cmd` | 1 | Repeatable command byte |
+| `cur_save` | 2 | `j` / `g`: `cur_addr` before the start, restored on a cancel or refusal (`cur_stash`) |
+| `cur_save_spc` (m65) | 3 | … and its space (`cur_flat`, `cur_bank`) |
 | `block_size` | 2 | Block size |
 | `disk_name_buf` | 18 | Composed disk filename (FILENAME_MAX + 2) |
 | `_verbatim_type` | 1 | 0 / 's' / 'p' from `strip_and_classify` |
