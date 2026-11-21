@@ -429,7 +429,12 @@ clear the prompt row normally.
 the flat bytes (§ Banks): a poke writes them there, a disassembly
 reads them there, and an assembly sets `asm_out` to the flat address
 and `asm_pc` to its low word.  A write into `2.0000–3.FFFF`, in
-either space, is `;?range`, before any byte is written.
+either space, is `;?range`, before any byte is written: a `.` poke or
+an `m` edit checks the run's first and last byte (`run_write_ok`; a
+run of up to 16 bytes crosses at most one bank or 4 K page edge), so
+a run that would reach the ROM banks writes nothing.  An `m` edit
+parses all its bytes and checks the line's end before it writes any:
+`m 11 22 zz` is `;?syntax` and writes nothing.
 
 The `.` handler (`cmd_dot`) has three modes:
 
@@ -533,7 +538,7 @@ to or accepted from the REPL user:
 | Command | Path | Redirect |
 |---------|------|----------|
 | `m` dump | read a row (`MEM_ROW_MAX`: 8, m65 16) for display | yes — staged from `userland_zp_buf` into `zp_stage_buf` |
-| `m` edit | write each edited byte | yes — lands in `userland_zp_buf` |
+| `m` edit | parse every byte, then write each | yes — lands in `userland_zp_buf` |
 | `.` disasm | read `INSN_MAX` bytes (3, m65 5) for the disassembler | yes — staged into `zp_stage_buf` |
 | `.` hex poke | write each parsed byte | yes — lands in `userland_zp_buf` |
 | `.` mnemonic | `asm_line` emits into `rp_hexbuf`, then `zp_poke` per byte (c64, an instruction starting below `$80`; m65: the lens) | yes — lands in `userland_zp_buf` |

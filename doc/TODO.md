@@ -73,17 +73,6 @@ marked.
 
 ### m65
 
-- [ ] **A flat `m` / `.` run can write into banks 2–3.**  `cur_write_ok`
-  checks only the run's first byte, and flat-space pokes go straight to
-  memory: `1.fffe:m 11 22 33 44` wrote `33 44` at `2.0000`, and
-  `1.fffe:. ea ea ea` wrote `2.0000`, with no `;?range` (reproduced).
-  Fix: check the run's last byte too (or every byte), before writing
-  any (repl.md § Banks: "before any byte is written").
-- [ ] **A CPU-space `m` run into banks 2–3 drops bytes silently.**
-  `lens_poke` skips a byte that translates into the ROM banks and says
-  nothing: `m dffe 11 22 33 44` wrote `$DFFE–$DFFF`, dropped
-  `$E000–$E001`, printed no `;?range` and advanced to `e002:`
-  (prober-reproduced).  Fix: refuse the whole run up front.
 - [ ] **Flat walks leave the 28-bit space.**  The `-` borrow and
   `rp_carry` do not wrap at 28 bits: `@ 0.0010` then `- $20` shows
   `fff.fff0:` (`cur_bank` = `$FFFF`); `0fff.fff8:m` gives `0.0008:`
@@ -109,10 +98,6 @@ marked.
 
 ### Both platforms
 
-- [ ] **An `m` edit that wraps leaves the current address at 0.**  On a
-  carry past `$FFFF` the code sets `cur_addr` to 0, not addr + n:
-  `fffc:m 01 … 08` leaves `$0000` (c64), `4.fffc:m …8 bytes` gives
-  `5.0000:` (m65; reproduced) — expected `$0004` / `5.0004:`.
 - [ ] **`d` at the top of memory lists nothing.**  `cmd_disasm` clamps
   the end to `$FFFF` on overflow, so the byte at `$FFFF` is never
   listed: `4.ffff:d` prints no row and does not advance (reproduced);
@@ -4471,6 +4456,23 @@ Stale against the code, by document (each item verified both ways).  **Closed 20
 
 ### Fixed bugs
 
+- [x] (fixed 2026-11-21: the sum's low word is kept; `m` also parses
+  every byte before writing any) **An `m` edit that wraps leaves the current address at 0.**  On a
+  carry past `$FFFF` the code sets `cur_addr` to 0, not addr + n:
+  `fffc:m 01 … 08` leaves `$0000` (c64), `4.fffc:m …8 bytes` gives
+  `5.0000:` (m65; reproduced) — expected `$0004` / `5.0004:`.
+- [x] (fixed 2026-11-21: the whole run is checked first, `run_write_ok`) **A CPU-space `m` run into banks 2–3 drops bytes silently.**
+  `lens_poke` skips a byte that translates into the ROM banks and says
+  nothing: `m dffe 11 22 33 44` wrote `$DFFE–$DFFF`, dropped
+  `$E000–$E001`, printed no `;?range` and advanced to `e002:`
+  (prober-reproduced).  Fix: refuse the whole run up front.
+- [x] (fixed 2026-11-21: `run_write_ok` checks the run's first and last
+  byte before any is written) **A flat `m` / `.` run can write into banks 2–3.**  `cur_write_ok`
+  checks only the run's first byte, and flat-space pokes go straight to
+  memory: `1.fffe:m 11 22 33 44` wrote `33 44` at `2.0000`, and
+  `1.fffe:. ea ea ea` wrote `2.0000`, with no `;?range` (reproduced).
+  Fix: check the run's last byte too (or every byte), before writing
+  any (repl.md § Banks: "before any byte is written").
 - [x] (fixed 2026-11-21: `dot_assemble` assembles an instruction
   starting below `$80` into `rp_hexbuf` and writes it through `zp_poke`;
   test_repl.py `TestDotInTheZeroPage`) **`.` at `$00–$7F` writes CSE's live zero page.**  The userland

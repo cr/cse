@@ -1150,3 +1150,38 @@ def test_dot_an_undefined_operand_is_expr_undef(s):
     s.type("@ $3000")
     s.type(". jmp nosuch")
     s.find(r"^;\?expr undef$")
+
+
+# ── the write guard covers the whole run (TODO § Bugs › m65, fixed
+#    2026-11-21): nothing is written when any byte would land in 2-3 ──
+
+@pytest.mark.parametrize("line", ["1.fffe:m 11 22 33 44", "1.fffe:. ea ea ea"])
+def test_a_flat_run_reaching_bank_2_is_refused_whole(s, line):
+    fpoke(s, 1, 0xFFFE, [0xAA, 0xAA])
+    before = fpeek(s, 2, 0x0000, 2)
+    s.line(line)
+    s.find(r"^;\?range$")
+    assert fpeek(s, 1, 0xFFFE, 2) == [0xAA, 0xAA]
+    assert fpeek(s, 2, 0x0000, 2) == before
+
+
+def test_a_cpu_run_into_a_rom_page_is_refused_whole(s):
+    before = fpeek(s, 3, 0xE000, 2)
+    s.type("m dffe 11 22 33 44")
+    s.find(r"^;\?range$")
+    assert fpeek(s, 3, 0xE000, 2) == before
+    assert prompt(s) == "2000:"                 # the address did not move
+
+
+def test_m_with_trailing_garbage_writes_nothing(s):
+    s.poke(0x3000, [0, 0])
+    s.type("@ $3000")
+    s.type("m 11 22 zz")
+    s.find(r"^;\?syntax$")
+    assert s.peek(0x3000, 2) == [0, 0]
+
+
+def test_an_m_edit_that_carries_into_the_next_bank_lands_after_it(s):
+    s.line("4.fffc:m 01 02 03 04 05 06 07 08")
+    assert fpeek(s, 5, 0x0000, 4) == [5, 6, 7, 8]
+    assert prompt(s) == "5.0004:"

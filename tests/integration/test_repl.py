@@ -1650,3 +1650,24 @@ class TestDotInTheZeroPage:
         _dot(cpu, rsyms, ". lda #$42", 0x007F)
         assert cpu.memory[img + 0x7F] == 0xA9 and cpu.memory[0x7F] == 0x77
         assert cpu.memory[0x80] == 0x42
+
+
+class TestMemoryEditRun:
+    """TODO § Bugs (fixed 2026-11-21): `m` parses its bytes before it
+    writes any, and a wrap past $FFFF leaves cur_addr after the bytes."""
+
+    def test_trailing_garbage_writes_nothing(self, rsyms):
+        cpu = make_cpu(rsyms)
+        cpu.memory[0x3000:0x3002] = [0, 0]
+        set_cur_addr(cpu, rsyms, 0x3000)
+        set_line_buf(cpu, rsyms, "m 11 22 zz")
+        run_at(cpu, rsyms.exec_line)
+        assert ";?syntax" in _screen(cpu)
+        assert list(cpu.memory[0x3000:0x3002]) == [0, 0]
+
+    def test_a_wrap_leaves_cur_addr_after_the_bytes(self, rsyms):
+        cpu = make_cpu(rsyms)
+        set_cur_addr(cpu, rsyms, 0xFFFC)
+        set_line_buf(cpu, rsyms, "m 01 02 03 04 05 06 07 08")
+        run_at(cpu, rsyms.exec_line)
+        assert get_cur_addr(cpu, rsyms) == 0x0004

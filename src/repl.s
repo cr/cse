@@ -497,6 +497,38 @@ cur_write_ok:
         jsr far_cur_w
         jmp far_write_ok
 
+; run_write_ok — cur_write_ok for a run of A bytes (1-16) from
+; rp_addr: its first and its last byte (a flat run carrying into the
+; next bank, a CPU run wrapping at $FFFF) — a run crosses at most one
+; bank or 4 K page edge.  C=1: refuse the whole run.  Clobbers A, X.
+run_write_ok:
+        pha
+        jsr cur_write_ok        ; the first byte
+        pla
+        bcs @r
+        tax
+        dex                     ; n - 1
+        txa
+        clc
+        adc rp_addr
+        sta lens_ptr
+        lda rp_addr+1
+        adc #0
+        sta lens_ptr+1
+        php                     ; C: carried past $FFFF
+        ldx #lens_ptr
+        jsr far_cur_w           ; flat: rp_bank; CPU: the lens
+        plp
+        bcc @chk
+        bit rp_flat
+        bpl @chk                ; a CPU address wraps within 64 K
+        inc lens_ptr+2          ; a flat one: the next bank
+        bne @chk
+        inc lens_ptr+3
+@chk:   ldx #lens_ptr
+        jmp far_write_ok
+@r:     rts
+
 ; ───────────────────────────────────────────────────────────
 ; lens_stage — a CPU-space row through the CPU's lens (mem.md
 ; § far_user): every byte rp_addr + Y (16-bit, wrapping) of
@@ -2691,7 +2723,8 @@ mem_row:
         sta rp_ptr2+1
         FAR_CUR rp_ptr2
 .ifdef PLATFORM_M65
-        jsr cur_write_ok        ; not into the ROM banks (repl.md § Banks)
+        lda rp_cnt              ; the whole run: not into the ROM banks
+        jsr run_write_ok        ; (repl.md § Banks)
         bcc :+
         jmp dot_range
 :
@@ -2937,20 +2970,9 @@ mem_row:
         jsr is_eow_at_ptr1_y
         jne @dump
 
-@edit:  ; Parse and write edit bytes.  rp_ptr2 := rp_addr once;
-        ; zp_poke uses rp_ptr2+Y as the effective address so each
-        ; iteration only needs Y = rp_cnt.
-        lda rp_addr
-        sta rp_ptr2
-        lda rp_addr+1
-        sta rp_ptr2+1
-        FAR_CUR rp_ptr2
-.ifdef PLATFORM_M65
-        jsr cur_write_ok        ; not into the ROM banks (repl.md § Banks)
-        bcc :+
-        jmp dot_range
-:
-.endif
+@edit:  ; Parse every edit byte into zp_stage_buf first, check the
+        ; line's end, then (m65) the whole run, then write: a refused
+        ; line writes nothing.
         lda #0
         sta rp_cnt              ; nbytes
 @ed_lp: lda rp_cnt
@@ -2964,17 +2986,35 @@ mem_row:
         beq @ed_done
         jsr parse_hex2_ptr1
         ldy rp_cnt
-        jsr zp_poke
+        sta zp_stage_buf,y
         inc rp_cnt
         jsr skip_sp_ptr1
         jmp @ed_lp
 
 @ed_done:
         ; Final-arg garbage check: reject non-EOW after the last HH
-        ; (pop-trick).  Must precede emit_mem / cur_addr update so
-        ; bad trailing input leaves state untouched.
+        ; (pop-trick), before any byte is written.
         ldy #0
         jsr _require_eoi_or_err
+        ; rp_ptr2 := rp_addr; zp_poke writes rp_ptr2+Y
+        lda rp_addr
+        sta rp_ptr2
+        lda rp_addr+1
+        sta rp_ptr2+1
+        FAR_CUR rp_ptr2
+.ifdef PLATFORM_M65
+        lda rp_cnt              ; the whole run: not into the ROM banks
+        jsr run_write_ok        ; (repl.md § Banks)
+        bcc :+
+        jmp dot_range
+:
+.endif
+        ldy #0
+@ed_wr: lda zp_stage_buf,y
+        jsr zp_poke             ; (keeps Y)
+        iny
+        cpy rp_cnt
+        bne @ed_wr
         lda rp_cnt
         sta rp_save             ; nbytes for emit
         jsr emit_mem
@@ -2985,14 +3025,12 @@ mem_row:
         sta cur_addr
         lda #0
         adc rp_addr+1
-        sta cur_addr+1
-        ; check wrap
-        jcc @ed_nl
-        lda #0
-        sta cur_addr
-        sta cur_addr+1
+        sta cur_addr+1          ; (a wrap past $FFFF: the sum's low word)
+.ifdef PLATFORM_M65
+        bcc @ed_nl
         RP_CARRY                ; a flat address carries into its bank
 @ed_nl:
+.endif
         CUR_FROM_RP
         jmp newline
 
