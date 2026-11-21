@@ -136,8 +136,8 @@ def test_c64_config_bounds_kdata_below_the_repl_screen(cfg):
 M65_AREAS = {
     "ZP":      (0x0000, 0x00B0),        # CSE's base page, below the resident stub
     "STUB":    (0x1FB0, 0x0050),        # 0.1FB0-0.1FFF
-    "CODEWIN": (0x2000, 0x6000),        # 3.2000-3.7FFF
-    "DATAWIN": (0x8000, 0x1F00),        # 3.8000, below SYM_TABLE ($9F00)
+    "CSEWIN":  (0x2000, 0x7F00),        # 3.2000-3.9EFF, below SYM_TABLE ($9F00)
+    "RESERVE": (0xC000, 0x1000),        # 3.C000-3.CFFF, far pointers only
 }
 
 
@@ -184,7 +184,8 @@ def test_an_m65_region_overflow_fails_the_link(m65_objects, tmp_path, area):
 def _used(map_path, area):
     """The bytes the map's segments occupy in `area` (from its start)."""
     run_segs = {"ZP": ["ZEROPAGE"], "STUB": ["STUB"],
-                "CODEWIN": ["CODE", "RODATA"], "DATAWIN": ["KDATA", "BSS"]}[area]
+                "CSEWIN": ["CODE", "RODATA", "KDATA", "KCODE", "BSS"],
+                "RESERVE": ["HELP"]}[area]
     text = map_path.read_text()
     ends = [int(m.group(1), 16) for seg in run_segs
             for m in [re.search(rf"^{seg}\s+[0-9A-F]+\s+([0-9A-F]+)\s", text, re.M)]]
