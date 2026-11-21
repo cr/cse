@@ -33,7 +33,7 @@ editor's window); `scr_width`, `scr_height`, `scr_last_col`,
 and the tables `scr_lo` / `scr_hi` (one entry per row, stride the
 width) set from `SCRORG` and `$D062` (A1: X / Y are the right column
 and bottom row).  `scr_width` and `scr_last_col` are base-page cells
-(zp.s), the rest BSS here.  **Clobbers:** A, X, Y, Z.  Called by `io_init` and
+(zp.s), the rest BSS here.  **Clobbers:** A, X, Y, Z, `_io_tmp`.  Called by `io_init` and
 `screen_mode_set`.  On c64 there is no routine: the geometry is
 constants and the tables are RODATA.
 
@@ -42,9 +42,9 @@ constants and the tables are RODATA.
 base page), or, if it is empty, `KCALL GETIN` into it — so a peek
 sees all three of `GETIN`'s sources (A1).  `io_getc` takes the
 lookahead first, then `GETIN`.  `IO_KBD_FLUSH` empties the lookahead
-and drains `GETIN` to 0.  `io_kbhit` returns Z from A (X = 0 is
-loaded first), as `IO_KBHIT`'s c64 body `lda $C6` does — main_loop's
-`beq @wait` tests it.
+and drains `GETIN` to 0.  `io_kbhit` returns Z from A, as
+`IO_KBHIT`'s c64 body `lda $C6` does — main_loop's `beq @wait` tests
+it; X is what `GETIN` leaves (the c64 body loads X = 0).
 
 ### ZP Variables
 
@@ -79,14 +79,16 @@ Allocated in zp.s ([zp.md](zp.md)).
 | `scr_lo[25]` | 25 | Low bytes of $0400 + row×40 for rows 0–24 | **Exported** — imported by screen.s, editor.s, log.s, disk.s, main.s and repl.s. |
 | `scr_hi[25]` | 25 | High bytes of same | **Exported** — same importers as `scr_lo`. |
 | `hex_tab[16]` | 16 | Screen codes for hex digits: $30–$39, $01–$06 | Internal — used by io_puthex2.  Not exported. |
-| `dec_pow_lo[5]` | 5 | Powers of 10: <1, <10, <100, <1000, <10000 | **Exported**; only `io_utoa` uses them (asm_src.s and repl.s import them without using them). |
+| `dec_pow_lo[5]` | 5 | Powers of 10: <1, <10, <100, <1000, <10000 | **Exported**, no importer; only `io_utoa` uses them. |
 | `dec_pow_hi[5]` | 5 | Powers of 10: >1, >10, >100, >1000, >10000 | **Exported** — as `dec_pow_lo`. |
 
 ### io_init
 **In:** none
 **Out:** `$CC` = 1 (KERNAL cursor blink off) — the invariant every
-IRQ-safety claim below rests on.
-**Clobbers:** A
+IRQ-safety claim below rests on.  On m65 the KERNAL keeps its blink
+off for code started by `SYS`; `io_init` falls into `io_geometry`.
+**Clobbers:** A; on m65 what `io_geometry` clobbers (A, X, Y, Z,
+`_io_tmp`)
 
 Called by `main.s` cold init and `hw_reinit_body` (`cse_recover`).
 `hygiene_after_userland` (repl.s) re-asserts `$CC` = 1 after user
@@ -272,15 +274,18 @@ prints with CHROUT).
 
 ### io_blip
 
-**Out:** a short triangle pulse (~0.2 ms) on SID voice 1; SID volume
-($D418) left at 10.
+**Out:** a short triangle pulse on SID voice 1 — gate on, a
+`ldx #200` / `dex` / `bne` wait of about 1000 cycles (~1 ms on the
+C64, ~25 µs at the MEGA65's 40 MHz), gate off; SID volume ($D418)
+left at 10.
 **Clobbers:** A, X.  Preserves Y.
 
 Audible feedback for refused input.  Callers: the editor
 (`ed_handle_key`) and the REPL key handling in main.s (line cap,
-backspace into the left wall, cursor at a screen edge).  The volume
-byte stays set after the first call so later blips skip the
-re-init; user code that wants its own SID setup re-initialises it.
+backspace into the left wall, cursor at a screen edge).  Every call
+writes the frequency, the volume and the gate; the volume byte stays
+at 10 afterwards, and user code that wants its own SID setup
+re-initialises it.
 
 ### _io_scr_setup
 

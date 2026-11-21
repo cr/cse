@@ -17,7 +17,7 @@ contains a `.segment "ZEROPAGE"` section.
 This document owns the ZP allocation table and the cross-module flag
 table below; other documents point here instead of restating them.
 
-### Exported symbols ($02–$7B: 119 bytes exported, 3 unallocated)
+### Exported symbols ($02–$7B: 117 bytes exported, 5 unallocated)
 
 "Section" is the zp.s block the bytes are listed under; "Used by" is
 every module that `.importzp`s at least one of the block's variables
@@ -93,8 +93,9 @@ differences; the addresses are the linker map's
     `rp_addr` rewrite the offset only and keep that bank (no user set
     comes between: `expr_ptr` is a plain pointer the CSE map resolves);
     a user address (`FAR_USER`) in `brk_skip_user` and `step_next_pc`;
-    bank 0 for the breakpoint table's targets (`patch_all`,
-    `unpatch_all`); the screen in `read_line`, `main_loop`'s INS/DEL
+    a slot's own flat address, all four bytes, for the breakpoint
+    table's targets (`patch_all`, `unpatch_all`:
+    [breakpoints.md § unpatch_all](breakpoints.md#unpatch_all)); the screen in `read_line`, `main_loop`'s INS/DEL
     and `log.s`'s row tails (`FAR_BANK_SCREEN`).  A user set never
     precedes a further read of the line within one command.
   - `rp_ptr2` — a user address (`FAR_USER`) in `step_next_pc`,
@@ -142,11 +143,13 @@ Beside the C64's cells it holds 16 far pointers of 4 bytes (32 more
 than on c64), a 4-byte `expr_val` and `sym_val` (4 more: 32-bit
 values, [expr.md § 32-bit values](expr.md#32-bit-values-m65)), and 26
 bytes of its own (the bank state, the stub's targets, the terminal
-cells, the disk filename pointer, the lens pointer); it ends at `$9B`,
+cells, the disk filename pointer — the C64's `$7A` cell, moved up —
+and the lens pointer); it ends at `$9B`,
 20 bytes below the stub.  Slice 3's F0 took it from 2 to 24 free (the
 held holes and the project name went), F2's lens pointer took 4, and
-F5a's 32-bit values took 4 while 6 bytes of plain scratch left
-(below).
+F5a's 32-bit values took 4 while 4 bytes of plain scratch left
+(`_ex_tmp` 2, `_ex_digits` 1, `_asm_saved_sp` 1; below): 24 − 4 − 4 +
+4 = 20.
 
 On m65:
 
@@ -166,10 +169,10 @@ On m65:
 - **Pointers first.**  What stays is what needs the page: the far
   pointers and the cells used with base-page addressing modes.
   Plain scratch and flags leave it only when a later milestone needs
-  their room.  F5a did: expr's `_ex_tmp` (4 bytes there) and
-  `_ex_digits` are expr.s's BSS, `_asm_saved_sp` is zp.s's BSS beside
-  `cur_project_name` (imported with `.import` by asm_line and
-  asm_err).
+  their room.  F5a did: expr's `_ex_tmp` (2 bytes in the page; 4 in
+  the BSS, the 32-bit left operand) and `_ex_digits` are expr.s's
+  BSS, `_asm_saved_sp` is zp.s's BSS beside `cur_project_name`
+  (imported with `.import` by asm_line and asm_err).
 - **At least 20 bytes are free** below the stub, and the segment
   ends below `$B0` (the linker bounds it); `test_platform_audit.py`
   pins both from the map file.

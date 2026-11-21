@@ -36,8 +36,8 @@ lookup and then restored.
 
 `expr_eval` owns its KERNAL banking — callers don't manage it.  It
 brackets the evaluation with `kernal_bank_out` / `kernal_bank_in`
-because `sym_lookup` reads `sym_table` and `sym_heap` under the
-KERNAL ROM.  `sym_lookup` saves and restores the caller's `$01`, so it
+because `sym_lookup` reads `sym_table` and the name heap
+(`SYM_HEAP`) under the KERNAL ROM.  `sym_lookup` saves and restores the caller's `$01`, so it
 keeps this banking; inside an `asm_assemble` batch (`kernal_out` = 1)
 both helpers are no-ops.  Same wrapper structure as `asm_line`
 (`asm_line.s`) and `dasm_insn` (`dasm.s`).  Test contract:
@@ -84,8 +84,9 @@ strings.s).  A `last_err` of 7 or more reads as 0 (empty string)
 
 ### last_err
 Exported BSS byte: the last return code (`expr_eval` writes it on
-every exit).  `asm_line` also stores 3 into it when an instruction
-would run past `$FFFF`, so `expr_error_str` names that error `ovfl`
+every exit).  `asm_line` also stores 3 into it when an immediate
+operand is out of byte range (`_asm_imm_chk`) and when an instruction
+would run past `$FFFF`, so `expr_error_str` names those errors `ovfl`
 ([asm_line.md](asm_line.md)).
 
 ### Memory
@@ -96,9 +97,10 @@ BSS, `_ex_tmp` 4 bytes ([zp.md § The m65 base page](zp.md#the-m65-base-page)).
 
 **BSS (7 bytes):** `last_err` (1, exported), `_ex_depth` (1, nesting
 depth), `expr_fwd` (1, exported), `_mul_tmp` (2), `_div_rem` (2).
-m65: 216 bytes — `_ex_tmp` (4), `_ex_digits` (1), `_mul_tmp` and
-`_div_rem` 4 each, `_ex_far` (1), `_ex_sp` (1) and the operand stack
-`_ex_stk` (198,
+m65: 218 bytes — `_ex_tmp` (4), `_ex_digits` (1), `_mul_tmp` and
+`_div_rem` 4 each, `_ex_far` (1), `expr_bank` (2, exported,
+[§ 32-bit values](#32-bit-values-m65)), `_ex_sp` (1) and the operand
+stack `_ex_stk` (198,
 [§ 32-bit values](#32-bit-values-m65)).
 
 **Depends on:** symtab (`sym_lookup`, `sym_fwd`), mem
@@ -163,13 +165,15 @@ bytes 0 and 1 as before (narrow); bytes 2 and 3 are `<(x>>16)` and
 or FAR (`expr_wide` tells them apart).
 
 **Range.**  `expr_eval` (and `expr_eval_nb`) serve the 16-bit
-consumers — an operand, `.db` / `.dw` / `.org` / `.res` / `.align`,
-a REPL argument — so a value outside −$FFFF…$FFFF (in range: the top
+consumers — an operand, `.db` / `.dw` / `.res` / `.align`, a REPL
+16-bit value — so a value outside −$FFFF…$FFFF (in range: the top
 word $0000, or $FFFF with a nonzero low word) is **rc 7, `range`**
 instead of a truncation; a value inside keeps its low word, so `-1`
 is `$FFFF` as on the c64.  **`expr_eval32`** is the same evaluator
-with the check off, for the consumers that take 32 bits: a constant
-(`.const`, symtab.md) and `?`.  The opt-in lasts one evaluation.
+with the check off, for the consumers that take 32 bits: `.org`
+(`d_org`, a 28-bit address), `.dd`, a constant (`.const`,
+symtab.md), a REPL address argument (`try_addr_or_err`) and `?`.
+The opt-in lasts one evaluation.
 
 **The same-bank rule** (slice 3, F5b): the check also passes a value whose top
 word is **`expr_bank`** (BSS, exported, 2 bytes): the bank a 16-bit
@@ -284,8 +288,10 @@ operator peek fails, `expr_ptr` stays where `skip_sp` last parked it.
   § Partial-mode contract above for the formal statement).
 - `expr_wide` is reset to 0 at the start of each `expr_eval` call.
   No contamination from previous calls.
-- Label characters: a label starts with a letter or `.` and continues
-  with letters, digits and `.`.  Letters are PETSCII $41–$5A (the
+- Label characters: a label starts with a letter and continues with
+  letters, digits and `.`.  A `.name` local reference reaches expr
+  already rewritten to `scope.name` by asm_src (`_insn_buf` rebuild);
+  a `.` at the start of a factor is `ERR_EXPECTED`.  Letters are PETSCII $41–$5A (the
   unshifted letter keys); a shifted letter ($C1–$DA) is folded to
   $41–$5A **in the input text** and then matches.  No underscore.  The
   label grammar the assembler enforces at definition is

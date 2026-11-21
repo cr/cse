@@ -211,8 +211,10 @@ into a decode key (the prefix bytes and the opcode) whose mnemonic and
 mode select a semantic and an addressing routine; one routine serves
 an operation at every width it comes in (8 bits, the 16-bit word
 shifts, the 32-bit Q forms).  Cycle counts are not part of its
-contract (the speed gate is the C64 builds'); `processorCycles`
-counts steps.  In *clean* mode it admits, while the PC is in the
+contract: `processorCycles` counts steps, one per instruction, so the
+m65 set's speed gate (`asm_dasm_45gs02.json`,
+[build_system.md § Golden files](build_system.md#golden-files)) is an
+instruction-count gate.  In *clean* mode it admits, while the PC is in the
 regions it is given (CSE's code window and its bank-0 page on the m65
 build; the whole bundle for a Tier U bundle), only the 6502's 151
 documented opcodes and the decode keys it is given — the
@@ -232,12 +234,14 @@ reads from (clean mode's test of the PC; `None` for an I/O register).
 `FlatRAM` is the plain memory its Tier U tests run on (the CPU view is
 the first 64 KB of the flat space); `M65Memory` is the real layout.
 
-`M65Memory`'s recordings are also the oracle of the
-monitor's CPU lens: a test sets the program's bank state in CSE's base
-page, calls `far_user` / `far_user_w`, and compares each translation
-with `M65Memory.flat_of` (and its write table) under the same MAP,
-port and `$D030` — every 4 K page of every banking state in
-`m65_mem.json`.
+The recordings `M65Memory` is built from are also the oracle of the
+monitor's CPU lens: `test_m65_lens.py` sets each banking state of
+`m65_mem.json` as the program's bank state in CSE's base page, calls
+`far_user` / `far_user_w` on each probed address (one per 4 K page),
+and compares the translation with the read and write targets the
+recording holds — 26 of its 29 states: the three VIC-II-personality
+states are skipped, as CSE's runs keep the MEGA65 personality
+([mem.md § far_user](modules/mem.md#far_user-far_user_w-m65-only)).
 
 **Layer 2 — the memory layout, `M65Memory`**
 (`tests/m65emu/memory.py`).  The object `MPU45GS02` reads and writes

@@ -66,7 +66,8 @@ behaviour is the
 [debugger.md § dbg_reason × command matrix](modules/debugger.md#dbg_reason--command-matrix).
 
 Ending a session restores the bytes under patched breakpoints,
-clears the break state, and resets the user's SP to $FF.  The editor
+clears the break state, and resets the user's SP to `STACK_TOP`
+(`$FF`; on m65 `$F1`, [platform_layer.md § Stack](platform_layer.md#stack)).  The editor
 buffer, the breakpoint table and the user's ZP image are kept.
 See [memory_design.md § Warmstart entry points](memory_design.md#warmstart-entry-points).
 
@@ -116,6 +117,8 @@ User code's view of CPU and memory state, by tier:
   - `$CE`, `$D4`, `$D5`, `$D8` and the screen-line link table
     `$D9–$F1` — reset to a clean screen-editor state after every run
     (`kernal_screen_reset`, screen.s).
+  - `$90` (`ST`, the I/O status) — zeroed by disk.s before its
+    `LISTEN`/`UNLSN` drive probe, so the probe's status reads fresh.
   - `$0291` — set to $80 (the SHIFT+C= charset toggle stays locked);
     `$028A` bit 7 — set at cold init (all keys repeat).
   - Whatever the KERNAL routines CSE calls write in their own work
@@ -149,7 +152,7 @@ User code's view of CPU and memory state, by tier:
 ### On m65
 
 The four tiers, for a program run under CSE on the MEGA65
-([§ 3 On m65](#on-m65) for the regions):
+([§ 3 On m65: memory regions](#on-m65-memory-regions) for the regions):
 
 - **Preserved:** the registers `A`, `X`, `Y`, `Z`, `B`, `P`, `PC` and
   `SP` (the decimal flag as on c64; `E` stays 1, § 5.5); the **bank
@@ -219,7 +222,7 @@ $7C–$7F unallocated ([zp.md](modules/zp.md)) concerns CSE only; it
 does not change what user code may use.  `$00`/`$01` are the CPU
 port: see § 5.3.
 
-### On m65
+### On m65: memory regions
 
 A program run under CSE on the MEGA65 finds the machine a BASIC 65
 program finds when `RUN` starts it — the *run premise* of
@@ -346,7 +349,9 @@ map hazards [§ 5.5](#55-on-m65)'s.
 
 CSE and user code **share** the single 6502 stack page.  There is no
 two-image swap; user→kernel and kernel→user transitions are flat
-RTI/RTS-driven and cost about 20 cycles.
+RTI/RTS-driven; their stack handling costs about 20 cycles (the
+whole transition's cost, the c64 ZP swap and the m65 map capture
+among it: [memory_design.md § Cost](memory_design.md#cost)).
 
 ### Layout at userland entry
 

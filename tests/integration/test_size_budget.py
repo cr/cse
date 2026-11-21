@@ -1,5 +1,6 @@
-"""test_size_budget.py — the C64 builds never grow (TODO § M65, gate 1);
-the m65 build is held to its budget too.
+"""test_size_budget.py — each release PRG is held to its byte budget, a
+ratchet: a shrink lowers it, a deliberate growth raises it in a commit
+of its own (TODO § M65, gate 1; the m65 build is held to its budget too).
 
 Owner: doc/build_system.md
 

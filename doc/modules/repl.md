@@ -58,8 +58,10 @@ whatever the dispatched command's callees clobber (expr, asm, dasm,
 disk, editor state).
 
 ### read_line
-**In:** `CUR_ROW` ($D6) = the screen row to read.
-**Out:** `line_buf` = the row's 40 characters, reverse-video bit
+**In:** `IO_CY` = the screen row to read (`CUR_ROW`, $D6, on c64;
+cse_io's `io_cy` on m65).
+**Out:** `line_buf` = the row's `WIDTH` characters (40; on m65 40 or
+80, the screen mode's width), reverse-video bit
 stripped, screen codes converted by `scr_to_pet` (lowercase letters
 → $41–$5A, SHIFTed letters → $C1–$DA), trailing spaces trimmed,
 NUL-terminated.
@@ -67,8 +69,9 @@ NUL-terminated.
 
 ### show_prompt
 **In:** `cur_addr`.
-**Out:** `AAAA:` written at column 0 of the cursor row; cursor at
-column 5.  Nothing else on the row changes (clearing the row is the
+**Out:** `AAAA:` written at column 0 of the cursor row (on m65 a
+flat current address as `H.AAAA:`, [§ Banks](#banks-m65)); cursor
+after the colon (column 5 for `AAAA:`).  Nothing else on the row changes (clearing the row is the
 previous handler's job, [§ Command handler principles](#command-handler-principles)).
 **Clobbers:** A, X, Y (and cse_io's screen pointer).
 
@@ -86,7 +89,8 @@ banks).  On m65 `info_bank` is 0 again on return.
 ### step_cleanup
 Ends a step: `step_state` = STEP_NONE, `step_remaining` = 0, the two
 step slots zeroed (`dbg_step_clear`), the breakpoint `cmd_step`
-disabled (`rp_dis_bp` = slot × 4) enabled again, `rp_dis_bp` = $FF.
+disabled (`rp_dis_bp` = slot × `SLOT_SIZE`: × 4, on m65 × 6) enabled
+again, `rp_dis_bp` = $FF.
 Called by `post_run_cleanup` (a step landed), `cmd_step` (a step was
 refused) and main.s's `end_debug_body` (the session ended).
 **In:** `rp_dis_bp`.  **Out:** as above.  **Clobbers:** A, X.
@@ -96,7 +100,10 @@ Called by `main_loop_top` after user code broke back into the kernel
 (`dbg_reason`, `step_state` or `run_user_pending` non-zero).
 **Out:** `;!stk N` (LOG_WARN) when `reg_sp` < 64
 (`kernel_stack_budget` — [userland_contract.md § Kernel stack budget](../userland_contract.md#kernel-stack-budget));
-then, if a step was running, `step_cleanup`; then the break panel
+then, if a step was running, `;!range` (LOG_WARN) when the BRK
+handler refused a chained step (`step_state` bit 7: its BRK would
+land outside the workspace; the session stays at the instruction it
+would have run) and `step_cleanup`; then the break panel
 (`show_break_result`, debugger.md § Break panel); after a
 clean exit (`; rts`) the `pc:` field shows `cur_addr` at exit time;
 `cur_addr` = `brk_pc`.  After a step that ended the session
@@ -113,8 +120,10 @@ the test harness's label lookup; no module imports it.
 
 ### hygiene_after_userland
 Called by main.s's `handler_finalize` on every return from user code.
-**Out:** `$CC` = 1 (KERNAL cursor off), `$0291` = $80 (SHIFT+C=
-charset toggle locked), the three SID voice control registers
+**Out:** on c64 `$CC` = 1 (KERNAL cursor off) and `$0291` = $80
+(SHIFT+C= charset toggle locked); on m65 `io_cse_keys` (CSE's
+SYSFLAGS bits; the program's are in its bank state) — both
+`PLAT_HYGIENE`; then the three SID voice control registers
 ($D404/$D40B/$D412) = 0, `vic_reset`, `restore_colors`,
 `stop_cooldown` = 1 after an NMI break, `kernal_screen_reset`, then
 `io_sync`.
@@ -122,15 +131,17 @@ charset toggle locked), the three SID voice control registers
 
 **State** (BSS, read by main.s):
 - `cur_addr` (word) — the current address shown in the prompt.
-  `reset_globals` (main.s) sets it to $0800 at cold start and on
-  `cse_recover`.
+  `reset_globals` (main.s) sets it to the workspace start — $0800,
+  on m65 $2000 — at cold start and on `cse_recover`.
 - **m65:** the current address carries its
   space ([§ Banks](#banks-m65)): `cur_flat` (byte, BSS: 0 = a CPU
-  address, nonzero = flat) and `cur_bank` (word, BSS: the flat
-  address's bank and megabyte, bits 16–27).  Every site that sets
-  `cur_addr` from a CPU source — `@` with an expression,
-  `reset_globals`, a break panel, `a`'s `main`, `j` — clears
-  `cur_flat`; a prefix or `@` with a flat literal sets all three; an
+  address, `SPC_FLAT` = $80 = flat; read by bit 7) and `cur_bank`
+  (word, BSS: the flat address's bank and megabyte, bits 16–27).
+  `reset_globals`, a break panel and an `AAAA:` prefix clear
+  `cur_flat`; an `H.AAAA:` prefix sets all three; `@` and `j` with an
+  argument take the argument's space (flat when the expression's
+  width is FAR, `CUR_FROM_RP`); `a` and `g` take `main`'s (flat when
+  its value is above `$FFFF`, `sym_set_curaddr`); an
   advance (`m`, `.`, `d`, `+`, `-`) keeps the space and, in flat
   space, carries into `cur_bank` when the low word wraps.  The
   command scratch mirrors it: `rp_flat`, `rp_bank` beside `rp_addr`
@@ -153,11 +164,20 @@ in zp.s; see [zp.md](zp.md) — both in zero page on c64; on m65
 
 ### Memory
 
-**BSS (86 bytes):**
+**BSS (86 bytes):** the c64 builds.  On m65 repl.o's BSS is 159
+bytes: the m65 rows below (23 bytes) and the wider `line_buf`,
+`rp_hexbuf` and `zp_stage_buf`.
 
 | Variable | Size | Purpose |
 |----------|------|---------|
 | `cur_addr` | 2 | Current address (REPL prompt) |
+| `cur_flat`, `cur_bank` | 1 + 2 | m65: the current address's space ($80 = flat) and its bits 16–27 ([§ Banks](#banks-m65)) |
+| `rp_flat`, `rp_bank` | 1 + 2 | m65: the command address's (`rp_addr`'s) space and bank |
+| `tmp_flat`, `tmp_bank` | 1 + 2 | m65: `M`'s rows — a flat address to print |
+| `map_start`, `map_end`, `map_kind` | 3 | m65: `M`'s current run — its first and last 4 K page and its kind (`lens_kind`) |
+| `map_flat`, `map_next` | 3 + 3 | m65: the run's flat bytes 1–3 at its first page, and those the next page continues |
+| `fl_acc`, `fl_y` | 2 + 1 | m65: `parse_flat_ptr1` — the digits before the dot, the offset's first digit |
+| `ta_flat`, `ta_mode` | 1 + 1 | m65: bit 7 = the next `try_expr` reads an address (`try_addr_or_err`); this call's copy |
 | `last_cmd` | 1 | Repeatable command byte |
 | `block_size` | 2 | Block size |
 | `disk_name_buf` | 18 | Composed disk filename (FILENAME_MAX + 2) |
@@ -166,7 +186,7 @@ in zp.s; see [zp.md](zp.md) — both in zero page on c64; on m65
 | `line_buf` | 42 (m65 82) | Screen line capture buffer: the widest row, its NUL and a spare |
 | `rp_next_hi` | 2 | 16-bit scratch pair (`rp_next_lo` is in zp.s) |
 | `rp_opc` | 1 | Command character / scratch (`emit_mem` columns, `info_emit_rows` count) |
-| `rp_dis_bp` | 1 | `cmd_step`: disabled breakpoint slot × 4 ($FF = none) |
+| `rp_dis_bp` | 1 | `cmd_step`: disabled breakpoint slot × `SLOT_SIZE` (4, m65 6; $FF = none) |
 | `rp_hexbuf` | 3 (m65 5; `INSN_MAX`) | `cmd_dot` hex byte parse: up to `INSN_MAX` pairs, the longest instruction |
 | `cold_preview_done` | 1 | Cold-preview marker |
 | `zp_stage_buf` | 8 (m65 16; `MEM_ROW_MAX`) | User-ZP staging buffer for `m` dump and `.` disasm ([§ User-ZP view](#user-zp-view)) |
@@ -206,7 +226,9 @@ waits for the next key.  `exec_line`:
 
 1. Skips leading spaces.
 2. If the line starts with four hex digits and a `:`, sets
-   `cur_addr` to them and skips the prefix and following spaces.
+   `cur_addr` to them and skips the prefix and following spaces.  On
+   m65 an `H.AAAA:` prefix sets a flat current address the same way
+   ([§ Banks](#banks-m65)).
 3. Reads the command character.
    - NUL (empty line): if `last_cmd` is set, prints `AAAA:c` (the
      repeated command after the address) on the row and dispatches
@@ -225,7 +247,7 @@ exec_line`:
 - `@cmd_chars` — the command bytes, `0`-terminated.  Lowercase keys
   are the PETSCII bytes `read_line` produces for unshifted letters
   ($41–$5A, written `'a'` in the source); SHIFTed keys are $C1–$DA
-  (`B` = $C2, `C` = $C3, `Q` = $D1, `R` = $D2).
+  (`B` = $C2, `C` = $C3, `Q` = $D1, `R` = $D2; on m65 also `M` = $CD).
 - `@cmd_lo` / `@cmd_hi` — the handler addresses, `@h_<key>` labels
   in the same proc.
 
@@ -291,8 +313,8 @@ command character, no arguments.
    the row.  The screen uses the lowercase character set.
 
 2. **Commands are case-sensitive single characters.**  Lowercase
-   keys are the default; SHIFTed keys (`B`, `C`, `Q`, `R`) are
-   distinct commands — 52 letter slots.
+   keys are the default; SHIFTed keys (`B`, `C`, `Q`, `R`; on m65
+   also `M`) are distinct commands — 52 letter slots.
 
 3. **Commands own their output lines.**  Every row a handler writes
    is `io_clear_eol`'d — no leftover characters.
@@ -333,19 +355,20 @@ Errors are `;?<tag>` (LOG_ERR), warnings `;!<tag>` (LOG_WARN), info
 
 | Row | Source |
 |-----|--------|
-| `;?syntax` | trailing garbage, bad `.`/`r`/`C` input, unterminated `"`, `b` with a bad argument |
-| `;?expr <detail>` | expression error (`exp val`, `ovfl`, `exp )`, `undef`, `div0`) |
+| `;?syntax` | trailing garbage, bad `.`/`r`/`C` input (on m65 also a bad `M` field), unterminated `"`, `b` with a bad argument |
+| `;?expr <detail>` | expression error (`exp val`, `ovfl`, `exp )`, `undef`, `div0`; on m65 `range` — a value outside what the command takes, [§ Banks](#banks-m65)) |
 | `;?cpu` | `.` mnemonic refused by the CPU mode |
 | `;?cmd` | unknown command key |
-| `;?range` | `b ADDR` outside the workspace; PRG `s` of size 0 |
+| `;?range` | `b ADDR` outside the workspace; PRG `s` of size 0.  On m65 also: a write by `.` or `m` into `2.0000–3.FFFF`, in either space; a flat start outside the far window for `j`, `g` or a cold `t`/`o` ([§ Far starts](#far-starts)); a flat `b` outside user memory |
 | `;?full` | `b ADDR` with all 8 breakpoint slots in use |
 | `;?bad val` | `b -N` with N not 1–8 |
 | `;?no ctx` | `c` without a resumable session; `t`/`o` after the session ended |
 | `;?fail` | disk load / save failed |
 | `;?too big` | SEQ file larger than the source buffer |
-| `;!range` | a step refused: its BRK would land outside the workspace |
+| `;!range` | a step refused: its BRK would land outside the workspace — by `t`/`o` (`cmd_step`), or a chained step at a break (`post_run_cleanup`) |
+| `;!a shadow` | `.` with an explicit accumulator operand (`. asl a`) while a label `a` exists — `mode_parse`'s warning ([asm_line.md § Label-shadow warning](asm_line.md#label-shadow-warning)) |
 | `;!unsaved`, `;!debug` | gate warnings ([§ Gating pattern](#gating-pattern)) |
-| `;!long LNN` | a loaded / saved source line wider than 39 columns |
+| `;!long LNN` | a loaded / saved source line wider than `LINE_MAX` columns (39; 79 on m65) |
 | `;!stk N` | user SP below the kernel stack budget at a break |
 
 The source assembler's own rows (`;?N: <msg>`, `;!N: truncated`,
@@ -394,8 +417,9 @@ With arguments, `.` and `m`:
 4. Leave `cur_addr` at the continuation address.
 
 The prompting loop then writes `AAAA:` over the first five columns of
-the next row without clearing the rest — the dump content from column
-5 on stays editable.  Without arguments the same commands are in dump
+the next row (a flat `H.AAAA:`, 2–4 columns more, on m65) without
+clearing the rest — the dump content after the prefix stays
+editable.  Without arguments the same commands are in dump
 mode (`.` shows one instruction, `m` dumps `block_size` bytes) and
 clear the prompt row normally.
 
@@ -419,8 +443,8 @@ The `.` handler (`cmd_dot`) has three modes:
 3. **No arguments:** disassemble one instruction at `cur_addr`.
 
 **Expression support.**  In mode 2 (and for a bare `. mne opr`) the
-operand is evaluated by `expr_eval` before `asm_line` sees it, so
-full expressions work:
+operand is an expression, evaluated by `asm_line` as in a source line
+(below), so full expressions work:
 
     1000:. lda screen+$20     ; label + arithmetic
     1000:. sta <addr          ; lo byte operator
@@ -448,8 +472,12 @@ In all three modes the handler finishes by disassembling the
 instruction at `cur_addr` and rewriting its row with the result.
 
 **User-ZP redirect (modes 1 and 3).**  See [§ User-ZP view](#user-zp-view).
-Mode 2 (assembly) writes through `asm_line` to live memory and is not
-redirected; to put bytes into user ZP, use the hex-poke form.
+Mode 2 (assembly) writes through `asm_line` at `asm_out` and is not
+redirected; to put bytes into user ZP, use the hex-poke form.  ([TODO
+§ Bugs](../TODO.md#bugs): on c64 an assembly at `$00–$7F` writes
+CSE's live ZP, not the user's image —
+[userland_contract.md § 3](../userland_contract.md#3-memory-regions)
+states the intent.)
 
 #### `.` command input-shape matrix
 
@@ -465,7 +493,10 @@ Testing matrix: `tests/integration/test_repl.py::TestDotHexEdit`.
 
 The pair limit is the build's longest instruction: 3 on c64, 5 on
 m65 (a 45GS02 instruction with its prefixes).  Every mnemonic has at
-least three letters, so a mnemonic is never read as a pair.
+least three letters, so a mnemonic is never read as a pair.  The
+hex-poke path writes the pairs it parsed and takes no end-of-input
+check (TODO § Bugs: text after the last pair, and a pair past the
+limit, is dropped without `;?syntax`).
 
 #### Error tag dispatch (mnemonic-assemble path)
 
@@ -504,7 +535,7 @@ to or accepted from the REPL user:
 | `m` edit | write each edited byte | yes — lands in `userland_zp_buf` |
 | `.` disasm | read `INSN_MAX` bytes (3, m65 5) for the disassembler | yes — staged into `zp_stage_buf` |
 | `.` hex poke | write each parsed byte | yes — lands in `userland_zp_buf` |
-| `.` mnemonic | `asm_line` emits at `asm_pc` | **no** — live memory |
+| `.` mnemonic | `asm_line` emits at `asm_out` | **no** — not redirected (TODO § Bugs: on c64 it writes CSE's live ZP) |
 
 For reads (`zp_stage_prep`) and writes (`zp_poke`) the effective
 address is the full 16-bit `base + offset`, which wraps past `$FFFF`
@@ -539,7 +570,8 @@ read and written live through `rp_ptr2` / `rp_ptr` set with
 ### Line format and address handling
 
 `AAAA:cmd [args]` or bare `cmd [args]`; `;` ends parsing.  The
-`AAAA:` prefix is always four plain hex digits.  Commands operate on
+`AAAA:` prefix is four plain hex digits; on m65 a flat prefix
+`H.AAAA:` is the other form ([§ Banks](#banks-m65)).  Commands operate on
 `cur_addr`; `.`, `m` and `d` leave it past the bytes they handled,
 `@`, `+`, `-` set it, a break panel sets it to the break PC, and `a`
 sets it to `main` when the source defines one.
@@ -550,6 +582,11 @@ Row formats (40 columns):
     AAAA:.  HH HH HH HH HH  mne opr           . / d on m65 (5 columns)
     AAAA:m HH HH HH HH HH HH HH HH;cccccccc   m
     r pc:XXXX a:XX x:XX y:XX s:XX nv-bdizc    r (set flags uppercase)
+    r z:XX b:XX ml:XXXX mh:XXXX               r's second row on m65
+
+On m65 in 80 columns an `m` row holds 16 bytes ([§ Block-edit
+workflow](#block-edit-workflow)) and `r` is one row, `r pc:XXXX a:XX
+x:XX y:XX z:XX b:XX s:XX nv-bdizc ml:XXXX mh:XXXX`.
 
 The REPL's line-editing keys (DEL, INS, cursor keys, HOME,
 SHIFT+CLR/HOME) are main.s's: [main.md § Keyboard](main.md#keyboard).
@@ -558,7 +595,7 @@ SHIFT+CLR/HOME) are main.s's: [main.md § Keyboard](main.md#keyboard).
 
 | Key | Name     | Addressed | Example                     | Notes                                      |
 |-----|----------|-----------|-----------------------------|----------------------------------------------|
-| `m` | memory   | yes       | `1000:m` dump, `1000:m a9 00 …` edit, `m 2000` dump at $2000 | An optional 4-digit hex address (not an expression) after `m` overrides `cur_addr`; on m65 any other first word that is not an edit byte is an address expression (`m main`, `m $2000`, `m 4.2000`; [§ Banks](#banks-m65)).  Bare = dump `block_size` bytes; with hex pairs = edit up to 8 bytes.  Rejects trailing garbage (§ Single-expression command contract). |
+| `m` | memory   | yes       | `1000:m` dump, `1000:m a9 00 …` edit, `m 2000` dump at $2000 | An optional 4-digit hex address (not an expression) after `m` overrides `cur_addr`; on m65 any other first word that is not an edit byte is an address expression (`m main`, `m $2000`, `m 4.2000`; [§ Banks](#banks-m65)).  Bare = dump `block_size` bytes; with hex pairs = edit up to 8 bytes (16 on m65, `MEM_ROW_MAX`, in either width).  Rejects trailing garbage (§ Single-expression command contract). |
 
 ### Commands — Assembly / Disassembly
 
@@ -583,7 +620,8 @@ The debug-session gates of these commands, `t`/`o`, `a` and `R` are
 
 | Key | Name      | Addressed | Example         | Notes                                    |
 |-----|-----------|-----------|-----------------|------------------------------------------|
-| `r` | registers | —         | `r` or `r a:05 x:07` | Bare = show.  Fields by label in any order and subset: `a:XX` `x:XX` `y:XX` `s:XX` `pc:XXXX` (hex digits) and the 8-character flags field (`nv-bdizc`; uppercase = set, lowercase / `-` / `.` = clear; bit 5 stays 0).  The whole line is checked before anything is applied; a bad field is `;?syntax`. |
+| `r` | registers | —         | `r` or `r a:05 x:07` | Bare = show.  Fields by label in any order and subset: `a:XX` `x:XX` `y:XX` `s:XX` `pc:XXXX` (hex digits), on m65 also `z:XX` `b:XX` and the map halves `ml:XXXX` `mh:XXXX` ([§ The map in `r` and `M`](#the-map-in-r-and-m)), and the 8-character flags field (`nv-bdizc`; uppercase = set, lowercase / `-` / `.` = clear; bit 5 stays 0).  The whole line is checked before anything is applied; a bad field is `;?syntax`. |
+| `M` | map (m65) | —       | `M`, `M mb:0000 d030:64` | The program's map: one `; map` row per run of 4 K pages with one translation and kind, then the editable row `M mb:LLUU d030:XX`.  Fields `mb:LLUU` (4 hex digits, the megabyte selectors) and `d030:XX` (2) in any order; the whole line is checked first, then applied, then the map listed; a bad field is `;?syntax`.  See [§ The map in `r` and `M`](#the-map-in-r-and-m). |
 | `b` | breakpoint| —         | `b $1020`, `b main`, `b -1`, `b *`, `b` | Set (expression; must be in the workspace, else `;?range`; an address already set reuses its slot), delete slot 1–8, clear all, list the 8 user slots.  An expression error is its `;?expr` row alone; trailing garbage is `;?syntax`.  See [breakpoints.md](breakpoints.md). |
 | `t` | trace     | —         | `t` or `t 5`    | Step into, count = expression (default 1).  No session: cold preview.  Rejects trailing garbage. |
 | `o` | trace over| —         | `o` or `o 5`    | Step over (a `jsr` runs to completion), otherwise as `t`. |
@@ -680,14 +718,16 @@ A size of 0 is `;?range`.
   ([§ Gating pattern](#gating-pattern)).
 - PRG: `end` is the target address.  `end == 0` → the PRG header's
   load address.  Otherwise load to `end`.  The result line
-  `; prg  AAAA-BBBB NNNb` shows where the file landed: AAAA its start,
+  `; prg  AAAA-BBBB NNNNNb` shows where the file landed: AAAA its start,
   BBBB its last byte.
 
 After a successful SEQ load or save the REPL prints `; Nl Mb` and
 one `;!long LNN` per line wider than `LINE_MAX` columns (39; 79 on
 m65 — `warn_long_lines`; the editor shows such lines with `>` in its
 last column); a PRG load or
-save prints `; prg AAAA-BBBB NNb` ([log.md](log.md)).  Both end with
+save prints `; prg  AAAA-BBBB NNNNNb`, the size right-aligned in five
+columns (`; prg  1000-1010    17b`; on m65 the range is written
+`0.1000-1010`) ([log.md](log.md)).  Both end with
 the drive status row.
 
 **Examples** (addresses are workspace addresses):
@@ -759,9 +799,8 @@ expression error (whose `;?expr …` row it has already printed).  A
 command whose argument is optional acts on "empty" only: `j` with no
 argument jumps to `cur_addr`, `+`/`-` with none move by
 `block_size`, but `j nosuchsym` or `+ 1/0` print the error and do
-nothing — no run, no move (`TestBadExpressionAborts`).  `@` and `B`
-likewise change nothing on an error.  `t`/`o` are the exception
-noted under [§ Commands — Debug / Trace](#commands--debug--trace).
+nothing — no run, no move (`TestBadExpressionAborts`).  `@`, `B` and
+`t`/`o` likewise do nothing on an error.
 
 Test contract (`tests/integration/test_repl.py`): parametrised
 trailing-garbage rejection per command —
@@ -983,51 +1022,49 @@ written by `info_m65_rows`; a whole bank's size is `65536b`.  The
 The map is not a cover of the 28-bit space: the KERNAL's cells (base
 page `$00–$09` and `$90–$FA`, `0.0200–0.15FF`) and the KERNAL's and
 the ROM's banks are not listed; the `zp` rows are the program's part
-of base page 0 ([userland_contract.md § 3 On m65](../userland_contract.md#on-m65)).  Tests: `tests/integration/test_m65_repl.py`.
+of base page 0 ([userland_contract.md § 3 On m65: memory regions](../userland_contract.md#on-m65-memory-regions)).  Tests: `tests/integration/test_m65_repl.py`.
 
 ### Banks (m65)
 
-**Status (slice 3, [TODO § Slice 3 — banks](../TODO.md#slice-3--banks)):**
-F1–F4 have landed: both address forms, the prompt, `@`, `m`, `.`,
-`d`, `+`, `-`, the write refusal, the CPU space through the program's
-bank state, `r`'s and `M`'s map, far starts — `j` with a flat
-argument or at a flat current address, a cold `t` / `o` at one — and
-flat breakpoints (`b H.AAAA`, the slots and the list flat,
-[debugger.md § `b`](debugger.md#b)) work as stated.  The expression
-evaluator is 32-bit (F5a, [expr.md § 32-bit
+Both address forms, the prompt, `@`, `m`, `.`, `d`, `+`, `-`, the
+write refusal, the CPU space through the program's bank state, `r`'s
+and `M`'s map, far starts — `j` with a flat argument or at a flat
+current address, a cold `t` / `o` at one — and flat breakpoints
+(`b H.AAAA`, the slots and the list flat,
+[debugger.md § `b`](debugger.md#b)) work as this section states.  The
+expression evaluator is 32-bit ([expr.md § 32-bit
 values](expr.md#32-bit-values-m65)): an expression argument outside
 −$FFFF…$FFFF is `;?expr range`, never truncated, and `?` shows a
 value outside 16 bits (a negative one too) in 32 bits — `$` and eight
 hex digits, two spaces, the unsigned decimal: `? 4.2000` is
 `$00042000  270336`, `? -1` `$ffffffff  4294967295`.  The assembler
-takes banks (F5b, [assembler_syntax.md § Directives](../assembler_syntax.md#directives)):
+takes banks ([assembler_syntax.md § Directives](../assembler_syntax.md#directives)):
 `a` at a flat current address assembles the code before the first
 `.org` there (`a_bank` sets `asm_def_bank`); after `a` the current
 address is `main`'s value, flat when `main` is (the prompt `4.2000:`), and `g` far-starts it as `j` would; `.` at a
 flat current address takes a value in that address's bank as its low
 word (`4.2000:. jmp 4.2010` is `4c 10 20`, `dot_bank` sets
 `expr_bank` around `dot_assemble`), any other above `$FFFF` is
-`;?expr range`, nothing written (the same-bank rule).  The address arguments (F5c)
+`;?expr range`, nothing written (the same-bank rule).  The address arguments
 of `@`, `j`, `b` and `m` are 32-bit expressions
 ([expr.md § 32-bit values](expr.md#32-bit-values-m65)), so `@ main`,
 `j main` and `b loop+3` follow a flat label, `@ 4.2000+$10` is
 `4.2010`, and `m buf+$10` works.  The argument is a **flat address**
 when the expression's width is FAR — a factor above 16 bits, a flat
-literal (`0.2000` stays flat, as F1 made it) — and then must be a 28-bit
+literal (`0.2000` is flat) — and then must be a 28-bit
 address (`$0FFFFFFF` at most); a value from −$FFFF to −1 is the CPU
-address of its low word, as F5a's 16-bit consumers take it; any other
-value is `;?expr range`.  `m`'s first word keeps its shapes: four hex
+address of its low word, as a 16-bit consumer takes it; any other
+value is `;?expr range`.  `m`'s first word has three shapes: four hex
 digits are a CPU address (`m 2000` is `$2000`, not decimal 2000), two
 hex digits begin the edit bytes, anything else is an expression (`m
 $2000`, `m 4.2000`, `m main`); a label that looks like four hex digits
 is written in parentheses (`m (cafe)`).  `try_addr_or_err` reads such
 an argument: `try_expr` in its address mode evaluates it with
 `expr_eval32`, and `addr_flat` applies the rule into `rp_addr`,
-`rp_flat` and `rp_bank`; the expression's flat-literal factor reads
-what `parse_flat_arg` used to.  A row's
-prefix (`4.2000:`) is still read by `parse_flat_ptr1` (P-F-7).  The
-commands that take a 16-bit value only (`B`, `+`, `-`, `t N`) keep
-`;?expr range` above `$FFFF`; `d` takes no address, as before.
+`rp_flat` and `rp_bank`.  A row's prefix (`4.2000:`) is read by its
+shape, by `parse_flat_ptr1` (P-F-7).  The commands that take a 16-bit
+value only (`B`, `+`, `-`, `t N`, and `l`'s and `s`'s address
+arguments) answer `;?expr range` above `$FFFF`; `d` takes no address.
 
 On m65 an address is in one of two spaces, told apart by a dot
 ([glossary.md](../glossary.md), *CPU address*, *flat address*):
@@ -1035,15 +1072,16 @@ On m65 an address is in one of two spaces, told apart by a dot
 | Form | Space | What it reaches |
 |---|---|---|
 | `AAAA` | **CPU address** | what the program's CPU sees at that 16-bit address: read through the program's bank state — its `MAP`, CPU port and `$D030` ([platform_layer.md § Far memory](../platform_layer.md#far-memory)) |
-| `H.AAAA` | **flat address** | physical memory, around `MAP`: one to four hex digits (bits 16–27 of the 28-bit address, megabyte and bank; a fourth digit can only be 0), a dot, four hex digits — `4.2000`, `1.f6ff`, `800.0000`, `ffd.3000` |
+| `H.AAAA` | **flat address** | physical memory, around `MAP`: one to four hex digits (bits 16–27 of the 28-bit address, megabyte and bank; a fourth digit can only be a leading 0), a dot, four hex digits — `4.2000`, `1.f6ff`, `800.0000`, `ffd.3000` (in an argument `0ffd.3000`: there a flat literal begins with a digit) |
 
 There is no mode command.  The current address carries its space;
 the prompt shows it (`2000:` or `4.2000:`), and every row a command
 prints carries the same form and re-executes in it.
 
-**Entering a space.**  `@ 4.2000` makes the current address flat;
-`@ $2000`, `@ label` or a break (the panel sets the current address
-to the PC, a CPU address) make it a CPU address.  A row's prefix sets
+**Entering a space.**  `@ 4.2000` or `@` a flat label makes the
+current address flat; `@ $2000`, `@` a 16-bit label or a break (the
+panel sets the current address to the PC, a CPU address) make it a
+CPU address.  A row's prefix sets
 the space with the address: `4.2000:m` and `2000:m` are different
 commands.
 
@@ -1051,8 +1089,10 @@ commands.
 recognised by its shape — hex digits, a dot, four hex digits, a
 colon.  In an argument a flat literal begins with a digit `0`–`9`
 (`0ffd.3000`), so that a dotted label (`a.beef`) stays a label; it is
-a literal, not an expression, until the evaluator knows 32 bits (F5),
-and it is read before the evaluator sees the argument.  CSE prints a
+an expression factor of width FAR
+([expr.md § 32-bit values](expr.md#32-bit-values-m65)), so it combines
+with operators (`4.2000+$10`).  Only a row's prefix is read by shape,
+before the evaluator (`parse_flat_ptr1`).  CSE prints a
 flat address in lower case with the fewest digits before the dot.
 
 **The commands:**
@@ -1060,11 +1100,11 @@ flat address in lower case with the fewest digits before the dot.
 | Command | CPU space | Flat space |
 |---|---|---|
 | `m` (dump, edit), `.` (poke) | the bytes the program would read and write there; at `$00` / `$01` the program's port ([§ User-ZP view](#user-zp-view)) | the physical bytes; `0.0000` / `0.0001` are the RAM beneath the port |
-| `.` (assemble) | at the address, as today | the bytes go to the flat address; the instruction's own address — a branch's base, `*` — is the low word, the address the code has when its bank is started ([§ Far starts](#far-starts)) |
+| `.` (assemble) | at the address | the bytes go to the flat address; the instruction's own address — a branch's base, `*` — is the low word, the address the code has when its bank is started ([§ Far starts](#far-starts)) |
 | `d` | through the bank state | the physical bytes; a branch target is shown in the low word |
-| `+`, `-`, and a row's advance | wraps from `$FFFF` to `$0000`; the translation is made again at every 8 K block edge | carries into the next bank (`4.ffff` → `5.0000`) |
+| `+`, `-`, and a row's advance | wraps from `$FFFF` to `$0000`; the translation is made again at every 4 K page edge | carries into the next bank (`4.ffff` → `5.0000`) |
 | `j`, `g`, `t`, `o` | start or continue the program at the address, in its map | a far start ([§ Far starts](#far-starts)) |
-| `b` | a breakpoint at the byte the address resolves to now | a breakpoint at that byte (F4: [breakpoints.md](breakpoints.md)) |
+| `b` | a breakpoint at the byte the address resolves to now | a breakpoint at that byte ([breakpoints.md](breakpoints.md)) |
 
 **A write into CSE's or the KERNAL's banks is refused.**  `m`, `.`
 and the assembler do not write a byte whose flat address is in
@@ -1127,7 +1167,7 @@ program's bank state — what the next resume installs, and what the
 CPU space shows from then on.
 
 `M` (upper case) prints the program's map, one row for every run of
-8 K blocks with the same translation, and a last row with the
+4 K pages with the same translation and kind, and a last row with the
 megabyte selectors and `$D030` that re-executes as an edit:
 
     2010:M
@@ -1139,14 +1179,15 @@ megabyte selectors and `$D030` that re-executes as an edit:
     ; map  e000-ffff 3.e000 mapped
     M mb:0000 d030:64
 
-**Rows in 40 columns.**  A flat prefix is two to five columns wider
-than `AAAA:`.  A flat `m` row in 40 columns shows its 8 bytes without
-the ASCII column (`4.2000:m HH … HH`, at most 36 columns); a flat `d`
-row with a one-digit bank is 40 columns at most, and with a wider
-prefix it is clipped at the right edge — the mnemonic and operand
-stay readable for banks 0–9 and A–F, the cases a program uses
-(TODO, O-F-1, proposed).  In 80 columns every row fits: the widest,
-an `m` row with a four-digit prefix, is 76 columns.
+**Rows in 40 columns.**  A flat prefix is two to four columns wider
+than `AAAA:` (`put_bank` prints at most three digits before the dot:
+the megabyte nibble and two bank digits).  A flat `m` row in 40
+columns shows its 8 bytes without the ASCII column (`4.2000:m HH …
+HH`, at most 34 columns); a flat `d` row with a one-digit bank is 40
+columns at most, and with a wider prefix it is clipped at the right
+edge — the mnemonic and operand stay readable for banks 0–9 and A–F,
+the cases a program uses.  In 80 columns every row fits: the widest,
+an `m` row with a three-digit prefix, is 75 columns.
 
 ### `C` — Color (uppercase)
 
@@ -1172,8 +1213,10 @@ Tests: `TestColorApply`, `TestColorCommand`.
 and always prints them, the active one marked `*`
 (`; cpu: 6502* 6510`).  The modes are the build's CPU set
 ([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)):
-the 6510 build offers 6502 and 6510; the m65 build 6502, 4510 and
-45gs02 (`; cpu: 6502 4510 45gs02*`).
+the 6502 build offers 6502 alone, the 6510 build 6502 and 6510, the
+m65 build 6502, 4510 and 45gs02 (`; cpu: 6502 4510 45gs02*`).  The
+table lists the builds' names only: `65c02`, the CMOS mode's name in
+`cpu_names`, belongs to no build and so to no `u`.
 `u` selects the assembler's CPU and the disassembler's view; the
 debugger's step follows the real CPU ([debugger.md § Next-PC](debugger.md#next-pc)).
 
@@ -1183,7 +1226,7 @@ debugger's step follows the real CPU ([debugger.md § Next-PC](debugger.md#next-
     p   reserved — print / evaluate
     v   reserved — visual mode
     f h n q w y z    free
-    all SHIFTed letters except B C Q R    free
+    all SHIFTed letters except B C Q R (and M on m65)    free
 
 ### Emitters
 
@@ -1195,12 +1238,15 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
   mode: the mnemonic at
   column 24, a row 38 columns at most (`lda ($12,sp),y`), so it fits
   40 columns.
-- `emit_mem(rp_addr, A = columns 1–8)` — `AAAA:m HH … HH;cccccccc`
-  (characters $20–$7E as themselves, others `.`).
+- `emit_mem(rp_addr, A = columns)` — `AAAA:m HH … HH;cccccccc`
+  (characters $20–$7E as themselves, others `.`).  A = 0 is a full
+  row; A is capped at the row: 8 on c64, on m65 the width's 8 or 16
+  (`mem_row`).  On m65 a flat row in 40 columns has no character
+  column ([§ Banks](#banks-m65)).
 - `emit_reg()` — `r pc:xxxx a:xx x:xx y:xx s:xx nv-bdizc` (set flags
   uppercase); on m65 in 80 columns `r pc:xxxx a:xx x:xx y:xx z:xx
-  b:xx s:xx nv-bdizc`, in 40 columns that c64 line and a second row
-  `r z:xx b:xx` ([debugger.md § `r`](debugger.md#r)).  The break panel
+  b:xx s:xx nv-bdizc ml:xxxx mh:xxxx`, in 40 columns that c64 line and
+  a second row `r z:xx b:xx ml:xxxx mh:xxxx` ([debugger.md § `r`](debugger.md#r)).  The break panel
   is a row taller in m65's 40 columns, and `cmd_step`'s re-print moves
   up by the panel's height, not by 3.
 
@@ -1217,5 +1263,6 @@ paths; each starts at column 0 and ends with `io_clear_eol`.
   `o`, `B` take full expressions (`$hex`, decimal, `%binary`,
   symbols, operators).  Bare digits are decimal — hex needs `$`, and
   hex digits are lowercase ([expr.md](expr.md)).  The `AAAA:` prefix,
-  `m`'s address, `.`/`m` byte pairs, `r` fields and `C` digits are
-  plain hex.
+  `.`/`m` byte pairs, `r` and `M` fields and `C` digits are plain hex.
+  `m`'s address is plain hex on c64; on m65 it is an expression, four
+  hex digits staying a CPU address ([§ Banks](#banks-m65)).

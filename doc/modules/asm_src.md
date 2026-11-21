@@ -85,18 +85,18 @@ the error and warning lines are specified in
 [§ Error and warning lines](#error-and-warning-lines) below.
 
 **Depends on:** asm_line (`asm_line`), asm_err (`asm_err_code`,
-`asm_pass`), expr (`expr_eval`, `expr_error_str`, `expr_fwd`), symtab
-(`sym_define`, `sym_clear`, `sym_stamp`), gap_buffer
-(`define_ws_syms`, `ed_read_line`, `ed_read_rewind`), log
-(`log_open`, `log_close`, `seg_line`, `puts_imm`), mem
-(`kernal_bank_out`, `kernal_bank_in`), cse_io (`io_puts`, `io_putc`,
-`io_putdec`, `io_puthex4`, `io_clear_eol`, `io_utoa`, `dec_buf`),
-screen (`newline`), strings (`str_tag_org`, `str_range`,
-`str_cpu_err`, `err_overflow`, the `s_*` messages), zp (`kernal_out`,
-`asm_*`, `expr_*`, `sym_*`, `_as_ptr`, `_as_wsize`, `buf_base`,
-`cur_project_name`, `rp_addr`, `rp_cnt`, `rp_save2`, `rp_ptr2`).
-asm_src.s also imports `dec_pow_lo` / `dec_pow_hi` (strings) without
-using them.
+`asm_pass`), expr (`expr_eval`, `expr_error_str`, `expr_fwd`; on m65
+also `expr_eval32`, `expr_bank`), symtab (`sym_define`, `sym_clear`,
+`sym_stamp`), gap_buffer (`define_ws_syms`, `ed_read_line`,
+`ed_read_rewind`), log (`log_open`, `log_close`, `seg_line`,
+`puts_imm`; on m65 also `info_bank`), mem (`kernal_bank_out`,
+`kernal_bank_in`), cse_io (`io_puts`, `io_putc`, `io_putdec`,
+`io_puthex4`, `io_clear_eol`, `io_utoa`, `dec_buf`), screen
+(`newline`), strings (`str_tag_org`, `str_range`, `str_cpu_err`,
+`err_overflow`, the `s_*` messages), zp (`kernal_out`, `asm_*`,
+`expr_*`, `sym_*`, `_as_ptr`, `_as_wsize`, `buf_base`,
+`cur_project_name` (BSS on m65), `rp_addr`, `rp_cnt`, `rp_save2`,
+`rp_ptr2`).
 
 The ACC label-shadow warning `;!a shadow` is emitted by
 `addr_mode.s::mode_parse`, not by asm_src
@@ -119,7 +119,8 @@ nothing is written and nothing is checked.  Always: `asm_pc` += 1,
 `asm_size` += 1 (`inc_pc_size`); an `asm_pc` wrap from `$FFFF` to
 `$0000` sets `_pc_wrap` (cleared by `.org`/`.bas` and at each pass
 start).
-**Clobbers:** Y, flags.  Preserves A and X (callers loop on X).
+**Clobbers:** Y, flags; on m65 also Z (`FAR_STA`).  Preserves A and
+X (callers loop on X).
 
 `_emit_word` emits A (lo) then X (hi) through it.
 
@@ -185,6 +186,9 @@ open; then `process_line` runs for each line `ed_read_line` returns.
 - Forward references in instruction operands: `_au_read_val`
   substitutes `asm_pc+2` (wide) so the instruction gets its pass-1
   size ([addr_mode.md § Forward-reference handling](addr_mode.md#forward-reference-handling)).
+  A zero-page-only operand — `(zp),y`, `(zp,x)`, a BBR/BBS `zp`, on
+  m65 the far and stack-relative forms — has no wide size: a forward
+  symbol there ends in `;?N: bad insn` (TODO § Bugs).
   In `.db` / `.dw`, pass 0 ignores the return code: every `.db`
   argument is one byte and every `.dw` argument two, whatever the
   value.
@@ -193,6 +197,8 @@ open; then `process_line` runs for each line `ed_read_line` returns.
   nothing laid out.  On pass 1 the symbol is defined and the
   directive uses its value, so the layout after it differs between
   the passes — the assembly has already failed (error count ≥ 1).
+  (TODO § Bugs: a symbol defined nowhere reports `fwd ref` on both
+  passes.)
 - All other errors are silent on pass 0 (`emit_error` returns).
 
 **Pass 1:** resolve references, emit bytes, count errors.
@@ -312,11 +318,12 @@ count), `_as_wsize` (1B, `.db`/`.dw` word size; scratch elsewhere).
 |---|---|---|
 | `asm_org` | 2 | exported, above |
 | `_def_org` | 2 | default origin; every pass starts here |
+| `asm_def_bank` | 2 | m65 only: exported, the default origin's bank (0: a CPU address) |
 | `_cpu_save` | 1 | the caller's `asm_cpu` |
 | `asm_size` | 2 | exported, above |
 | `asm_errors` | 2 | exported, above |
 | `_line_num` | 2 | current source line, 1-based |
-| `_line_buf` | 40 | the line `ed_read_line` returns |
+| `_line_buf` | 40 | the line `ed_read_line` returns (`LINE_MAX` + 1; 80 on m65) |
 | `_scope_name` | 24 | last global label (≤ 23 chars + NUL) |
 | `_full_label` | 48 | `scope.local` (≤ 23 + `.` + ≤ 23 + NUL); also `_insn_out`, `asm_line`'s output scratch |
 | `_insn_buf` | 58 | instruction text: mnemonic word ≤ 8 + space + operand with locals expanded, NUL — `@put` refuses the 58th byte with `too long` |
@@ -330,6 +337,9 @@ count), `_as_wsize` (1B, `.db`/`.dw` word size; scratch elsewhere).
 | `_pc_wrap` | 1 | nonzero once `asm_pc` wrapped past $FFFF |
 | `_oor` | 1 | nonzero: the current line dropped a byte (`range`) |
 | `_org_set` | 1 | nonzero after the first `.org`/`.bas` of pass 0 |
+
+Total 194 bytes; on m65 236 (`asm_def_bank` and the 40 more bytes of
+`_line_buf`).
 
 `asm_pass` is not asm_src's: it is BSS of asm_err.s
 ([asm_err.md](asm_err.md)); asm_src writes it at each pass.

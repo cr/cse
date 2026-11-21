@@ -38,7 +38,8 @@ unchanged.  `$01` is the caller's on return.
 
 ### sym_clear
 **In:** none
-**Out:** all 256 slots zeroed, `_st_heap` and `_st_heap_base` = $E600
+**Out:** all 256 slots zeroed, `_st_heap` and `_st_heap_base` =
+`SYM_HEAP` ($E600; m65 $A700)
 **Clobbers:** A, X.  Does not bank (pure writer).
 
 ### sym_stamp, sym_fwd
@@ -63,8 +64,7 @@ in the data window.  The layout of the whole banked area is owned by
 [memory_design.md § Banked layout](../memory_design.md#banked-layout-e000ffff).
 
 **Depends on:** mem (`kernal_bank_out`), zp (`sym_name`, `sym_val`,
-`sym_wide`, `_st_*`).  symtab.s also `.importzp`s `kernal_out` but
-does not use it.
+`sym_wide`, `_st_*`).
 
 ### Callers of `sym_define`
 
@@ -88,8 +88,9 @@ data window's KDATA / KCODE / BSS area ends at `$9F00` (O-F-4;
 (hash, value bytes 0–1, name_ptr, scope); bytes 6–7 are the value's
 upper word.  Every writer of `sym_val` sets all four bytes: `.const`
 the expression's 32 bits ([expr.md § 32-bit
-values](expr.md#32-bit-values-m65)), a label and the workspace
-symbols their 16-bit address with a zero upper word.  Test contract:
+values](expr.md#32-bit-values-m65)), a label `asm_pc`'s four bytes
+(the upper word is its segment's bank: 0, or a flat segment's), the
+workspace symbols their 16-bit address with a zero upper word.  Test contract:
 `tests/unit/test_expr_m65.py` (the round trip through all 256 slots,
 `sym_clear`'s extent).  The c64 layout below does not change.
 
@@ -263,7 +264,8 @@ Wraparound to start index → C=1 (not found, table full).
 
 - 256 slots, all usable.  No dynamic resizing.  When full (or heap
   overflow), `sym_define` returns C=1 (asm_src reports `;?N: sym full`).
-- `sym_clear` zeros 1536 bytes (6 pages) — takes ~8ms at 1 MHz.
+- `sym_clear` zeros 1536 bytes (6 pages; m65 2048 bytes, 8 pages, of
+  8-byte entries) — about 8 ms at 1 MHz.
   No banking is required (pure writer), so interrupts stay enabled
   during the loop.
 - `names_equal` uses a stack peek trick (`tsx; cmp $0101,x`) to

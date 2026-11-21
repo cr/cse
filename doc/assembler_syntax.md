@@ -77,7 +77,7 @@ expression.
 **On m65** a constant is 32 bits — `.const far
 4.2000`, `.const big 100000` ([expr.md § 32-bit
 values](modules/expr.md#32-bit-values-m65)).  Where a 16-bit value is
-taken — an operand, `.db` / `.dw` / `.org` / `.res` / `.align` — a value
+taken — an operand, `.db` / `.dw` / `.res` / `.align` — a value
 outside −$FFFF…$FFFF is refused, never truncated: an operand is `;?N:
 range`, a directive's argument `;?N: bad val`.  `<(x>>16)` and
 `>(x>>16)` take its bytes 2 and 3 (slice 3, F5a).
@@ -179,6 +179,14 @@ even though the value fits in a byte.  Width is sticky: if any term
 in an expression is ABS, the whole expression is ABS (`$00 + $0000`
 → ABS).  See [expr.md](modules/expr.md) for full width propagation
 rules.
+
+**On m65** a value is 32 bits and two more literal forms exist:
+`$` with 5–8 hex digits (width FAR), decimal and binary up to
+`$FFFFFFFF`, and the flat literal `H.AAAA` — one to four hex digits
+(a value up to $FFF), a dot, exactly four hex digits, its first
+character a digit (`4.2000`, `0ffd.3000`) — which is `H` × $10000 +
+`AAAA`
+([expr.md § 32-bit values](modules/expr.md#32-bit-values-m65)).
 
 ### Operators (by precedence, loosest first)
 - `£` `&` `^` — OR (pound key), AND, XOR (↑ key)
@@ -354,8 +362,10 @@ Advances PC by N bytes. In pass 1, emits N copies of the fill byte
 **Forward refs not allowed.**  The count and fill expressions must
 resolve on pass 0 — the directive's pass-0 size depends on the
 count's value.  `.res FORWARD_LABEL` reports `;?<line>: fwd ref`
-(on pass 0, counted once) and the assembly fails.  Define the count above the directive that uses it
-(`.const COUNT 16` then `.res COUNT`), or use a literal number.
+(on pass 0, counted once) and the assembly fails (TODO § Bugs: a
+symbol defined nowhere gets `fwd ref` twice).  Define the count
+above the directive that uses it (`.const COUNT 16` then
+`.res COUNT`), or use a literal number.
 
 ### `.align` — Align PC
 
@@ -394,8 +404,12 @@ pass 0, and the assembly fails.
 A forward reference is always sized **absolute**, even when the
 symbol's value later turns out to fit in a byte: `lda zp` above
 `.const zp $10` assembles to `AD 10 00`.  Define zero-page constants
-above their first use to get the 2-byte form.  A `.const` itself must
-not read a later-defined symbol: `.const k later+1` is
+above their first use to get the 2-byte form.  An operand that can
+only be zero-page — the pointer of `(zp),y`, `(zp,x)` and the CMOS
+`(zp)`, the `zp` of `BBR`/`BBS`, and on m65 `(zp),z`, `[zp],z` and
+`(d,sp),y` — has no absolute size, so it must be defined above its
+use: a forward one is `;?N: bad insn` (TODO § Bugs).  A `.const`
+itself must not read a later-defined symbol: `.const k later+1` is
 `;?N: fwd ref` and `k` stays undefined.
 
 ### `.bas` — Emit BASIC SYS Stub
@@ -449,7 +463,7 @@ code at $1000 and data at $2000):
 
 ```
 ; asm...
-; org  0801-080e    14b
+; org  0801-080d    13b
 ; org  1000-1002     3b
 ; org  2000-2003     4b
 ; ok
@@ -474,10 +488,11 @@ code at $1000 and data at $2000):
 After `; ok` the REPL's current address moves to `main` if the source
 defines it.  On errors each one is a row `;?N: <message>` (`N` = the
 source line, e.g. `;?2: undef`), the segment rows still appear, and
-the summary is `; N err` instead of `; ok` and the save line.  A line
-of 39 characters or more gets a warning `;!N: truncated`; the
-assembler reads its first 39 characters (a line of exactly 39 loses
-nothing, but is warned about too).  The messages:
+the summary is `; N err` instead of `; ok` and the save line.  The
+assembler reads the first 39 characters of a line (79 on m65); a
+longer line gets a warning `;!N: truncated` and loses the rest.  A
+line of exactly 39 (79) characters is read whole and gets no
+warning.  The messages:
 [README.md § Source-assembly messages](../README.md#source-assembly-messages).
 
 ## Example Program

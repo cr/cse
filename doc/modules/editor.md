@@ -109,10 +109,7 @@ io_blip, scr_lo, scr_hi), mem (kernal_bank_out, kernal_bank_in),
 disk (disk_save_seq, disk_load_seq, disk_seq_bytes, disk_seq_lines),
 screen (m65: screen_save, screen_restore),
 zp (cur_project_name, state, ed_dirty, disk_ptr and the editor ZP
-below).  Linker-provided `__CODE_RUN__` (= `BUF_END`).  editor.s
-also imports gb_ensure_room, ed_insert_string, ed_read_rewind,
-ed_read_byte, ed_read_line, src_top and src_bot without using them
-(dead imports, [TODO.md § Code bugs](../TODO.md)).
+below).  Linker-provided `__CODE_RUN__` (= `BUF_END`).
 
 ### Zero-page variables
 
@@ -470,6 +467,4 @@ REPL's business (`l` / `s`), not the editor's.
   what is left.
 - Screen save/restore copies the 1000 bytes of screen RAM only;
   colour RAM is never touched by the editor.
-- `ed_load_source` returns with Z = 1 on every path (flags from
-  `ldx #0`): test A, not Z.
 - `BUF_END` is the link-time constant `__CODE_RUN__`, not a variable.

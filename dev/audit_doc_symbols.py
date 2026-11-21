@@ -97,7 +97,7 @@ def load_source_identifiers():
       - NAME = expr / NAME := expr
       - .export NAME, .exportzp NAME, .import NAME, .importzp NAME,
         .global NAME
-      - .define NAME ...
+      - .define NAME ... / .macro NAME ...
 
     Walks both `*.s` and `*.inc` files in src/ and dev/.
     """
@@ -121,8 +121,8 @@ def load_source_identifiers():
                     if m:
                         ids.add(m.group(1))
                         continue
-                    # .define NAME ...
-                    m = re.match(r"\.define\s+(\w+)", code, re.IGNORECASE)
+                    # .define NAME ... / .macro NAME ...
+                    m = re.match(r"\.(?:define|macro)\s+(\w+)", code, re.IGNORECASE)
                     if m:
                         ids.add(m.group(1))
                         continue
@@ -207,8 +207,9 @@ def is_strict_spec(path):
 
 
 def load_python_names():
-    """Pick up Python def / class names from tests/, dev/.  Some
-    docs reference test helpers like `_cold_init_to_prompt`."""
+    """Pick up Python def / class names and module-level constants
+    from tests/, dev/.  Some docs reference test helpers like
+    `_cold_init_to_prompt` or generator tables like `MODE_SHAPE`."""
     names = set()
     for d in (ROOT / "tests", ROOT / "dev"):
         if not d.exists():
@@ -221,6 +222,10 @@ def load_python_names():
             for m in re.finditer(
                     r"^(?:def|class)\s+([A-Za-z_]\w*)",
                     text, re.MULTILINE):
+                names.add(m.group(1))
+            # module-level constants (`MODE_SHAPE = ...`): the generators'
+            # tables, which docs name
+            for m in re.finditer(r"^([A-Z_][A-Z0-9_]*)\s*=", text, re.MULTILINE):
                 names.add(m.group(1))
     return names
 

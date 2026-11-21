@@ -2,7 +2,7 @@
 
 Owner: doc/platform_layer.md
 
-Contract source: [userland_contract.md § 3 On m65](../../doc/userland_contract.md#on-m65)
+Contract source: [userland_contract.md § 3 On m65](../../doc/userland_contract.md#on-m65-memory-regions)
 (*Zero page*): base page 0's `$0A–$8F` and `$FB–$FF` are the
 program's; neither CSE nor the KERNAL writes them.
 

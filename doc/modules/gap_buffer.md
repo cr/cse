@@ -7,7 +7,7 @@
 | File | Role |
 |------|------|
 | [`src/gap_buffer.s`](../../src/gap_buffer.s) | implementation |
-| [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (36 tests) |
+| [`tests/unit/test_gap_buffer.py`](../../tests/unit/test_gap_buffer.py) | test contract — Tier-U bundled coverage (38 tests) |
 
 The editor's Tier I tests, [`tests/integration/test_editor.py`](../../tests/integration/test_editor.py)
 (owned by [editor.md](editor.md)), exercise this module transitively.
@@ -281,7 +281,7 @@ platform constants on m65.
 
 ## Test contract
 
-Full Tier U coverage via `tests/unit/test_gap_buffer.py` (36 tests):
+Full Tier U coverage via `tests/unit/test_gap_buffer.py` (38 tests):
 
 | Test class | Coverage |
 |---|---|

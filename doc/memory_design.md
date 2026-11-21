@@ -172,8 +172,8 @@ and banking hazards).
 
     $0000-$00FF  Zero page
       $00-$01    CPU I/O port
-      $02-$79    CSE ZP variables (zp.md)
-      $7A-$7F    Not allocated by CSE
+      $02-$7B    CSE ZP variables (zp.md)
+      $7C-$7F    Not allocated by CSE
       $80-$FF    KERNAL work area
     $0100-$01FF  6502 hardware stack (shared CSE + user code)
     $0200-$02A6  KERNAL editor state, input buffer
@@ -255,9 +255,11 @@ The ordering rule for batch callers is in
 
 **KDATA window.**  The KDATA tables must stay inside
 $F100–$F4F1, below the REPL screen save.  How much of the window a
-build fills depends on its CPU set (`make size` lists KDATA); the
-linker region in `c64_cse.cfg.in` runs to $FFF9, so the link itself
-does not stop KDATA from growing into the screen save.
+build fills depends on its CPU set (`make size` lists KDATA).  The
+linker region in `c64_cse.cfg.in` (and `c64_trial.cfg`) is exactly
+that window, `start = $F100`, `size = $03F2`, so a KDATA that grows
+into the screen save fails the link (test_makefile_guards.py pins
+both configs).
 
 ## Warmstart entry points
 
@@ -297,7 +299,8 @@ Table layout: [breakpoints.md](modules/breakpoints.md).
 
 CSE and user code **share** the single 6502 hardware stack page at
 `$0100–$01FF`.  Transitions between kernel and userland are flat
-RTI/RTS-driven and cost about 20 cycles each direction.
+RTI/RTS-driven: their stack handling costs about 20 cycles each
+direction (the whole transition's cost: [§ Cost](#cost)).
 
 The kernel is structured as an interrupt service routine
 ([design_cse_as_kernel.md](design_cse_as_kernel.md)).  After a
@@ -366,7 +369,11 @@ Stack handling per user-exit:   ~20 cycles (BRK hardware + KERNAL push + handler
 No copy of the stack page, no bank toggles around a stack swap.  On
 c64 the cost of a transition is the ZP swap: two 128-byte copies of
 $00–$7F (about 3.6k cycles); on m65 it is two `MAP` switches and a
-`B` switch — no swap ([platform_layer.md § Base page](platform_layer.md#base-page)).
+`B` switch — no swap ([platform_layer.md § Base page](platform_layer.md#base-page)) —
+and, at every break, the resident stub's `hyppo_get_mapping` (a
+Hypervisor trap, [platform_layer.md § Constants](platform_layer.md#constants))
+and `bank_state_swap`'s `KCALL SYSFLAGS`; the way back to the
+program calls `SYSFLAGS` again for the program's bits.
 
 ## Memory Map — PRG Load Image
 
@@ -411,11 +418,18 @@ to `_main`.
 
 The m65 build is a native MEGA65-mode program on the MEGA65 KERNAL,
 within the ROM floor of [platform_layer.md § Platforms and
-defines](platform_layer.md#platforms-and-defines).  Status: the PRG
-installs this machine (P0, [build_system.md § The m65 builds](build_system.md#the-m65-builds)),
-runs user code under the debugger (P1) and runs the REPL and the
-editor in the three text modes, back to BASIC 65 by `Q` (P2), and
-the disk, started from the D81 (P3).
+defines](platform_layer.md#platforms-and-defines).  The PRG
+installs this machine ([build_system.md § The m65 builds](build_system.md#the-m65-builds));
+CSE runs the REPL, the editor (in the three text modes), the
+assembler, the debugger and the disk in it, and `Q` returns to
+BASIC 65.  The monitor takes 28-bit flat addresses and reads the
+program's CPU view through its map
+([repl.md § Banks (m65)](modules/repl.md#banks-m65)), user code
+also starts in banks 1, 4 and 5 as `JSRFAR` would start it
+([repl.md § Far starts](modules/repl.md#far-starts)), expressions
+carry 32-bit values
+([expr.md § 32-bit values (m65)](modules/expr.md#32-bit-values-m65)),
+and part of CSE's code runs in the data window as KCODE (below).
 Its premise is the machine a BASIC 65 program finds when `RUN` starts
 it through its `SYS` line; user programs run in that machine, and CSE
 keeps out of it.  The facts below that are not book citations were
@@ -620,9 +634,9 @@ pointers are far pointers with the source bank
 
 ## Zero Page Layout
 
-The allocation of $02–$79 — every variable, its address and its
+The allocation of $02–$7B — every variable, its address and its
 module — is owned by [zp.md](modules/zp.md) (source: `src/zp.s`).
-$7A–$7F are not allocated by CSE.  On c64 user code may use all of
+$7C–$7F are not allocated by CSE.  On c64 user code may use all of
 $00–$7F, since CSE swaps the whole range
 ([userland_contract.md § 3](userland_contract.md#3-memory-regions));
 on m65 CSE's zero page is its own base page, `0.1F00`, and base page

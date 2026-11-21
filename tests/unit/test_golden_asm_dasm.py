@@ -6,10 +6,11 @@ Contract source: [doc/TODO.md § M65](../../doc/TODO.md#m65--the-45gs02-assemble
 *Acceptance gates*; [doc/testing.md § Principle 7](../../doc/testing.md#principles).
 
 The golden files (tests/fixtures/golden/asm_dasm_<cpu set>.json) are
-recorded by dev/capture_golden.py; each names the commit it was recorded
-from (`source_rev`): the 6502 set's from before the generated table
-formats, the 6510 set's, the CMOS mode's (65c02) and the m65 set's
-(45gs02, its prefixed cases included) re-recorded at P4b.  For every
+recorded by dev/capture_golden.py; each names the HEAD it was recorded
+on (`source_rev`, `-dirty` with the carrying commit's changes): the
+6502 set's from before the generated table formats, the 6510 set's and
+the CMOS mode's (65c02) re-recorded at P4b, the m65 set's (45gs02, its
+prefixed cases included) at slice 3's F5a (the 32-bit evaluator).  For every
 CPU set this test re-runs the same exhaustive sweeps on the current
 source and asserts:
 

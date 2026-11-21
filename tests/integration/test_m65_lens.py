@@ -6,7 +6,8 @@ Contract source: [mem.md § far_user](../../doc/modules/mem.md#far_user-far_user
 (slice 3, F2); [testing.md § M65Emu](../../doc/testing.md#m65emu--the-m65-integration-harness).
 
 The oracle is the recording: for every banking state in
-tests/fixtures/golden/m65_mem.json the program's bank state is set in
+tests/fixtures/golden/m65_mem.json but the VIC-II personality's (26 of
+29; CSE's runs keep the MEGA65 personality) the program's bank state is set in
 CSE's base page (MAP's X A Z Y and the megabytes in `um_map`, DDR and
 port in `userland_zp_buf`, `$D030` in `um_d030`), and `far_user` /
 `far_user_w` must translate each probed CPU address to the flat

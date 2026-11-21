@@ -511,8 +511,10 @@ the region it lives in.  The C64's KBSS homes under the KERNAL
 of the data window on m65, constants as on the C64
 ([memory_design.md § Memory Map — m65](memory_design.md#memory-map--m65-mega65-mode));
 the cold-init ZP snapshot has no m65 counterpart.  CSE's zero page is
-the same layout as the C64's with each far pointer widened to 4 bytes
-([zp.md](modules/zp.md)).
+its own base page with a layout of its own: the C64's cells in their
+own order without the C64's held holes or the project name, each far
+pointer 4 bytes, and the m65-only cells
+([zp.md § The m65 base page](modules/zp.md#the-m65-base-page)).
 
 **Outputs.**  `make release PLATFORM=m65` and `make debug
 PLATFORM=m65` each build the one m65 build into
@@ -608,7 +610,12 @@ current source to them: identical output, total cycles no higher, no
 case more than 10 % slower.  They are re-recorded only by a commit
 that deliberately changes what a build assembles or lists, or what
 it costs — never to make a refactor pass; that commit states the
-reason and the measured cycle change.
+reason and the measured cycle change.  A file is recorded on the
+working tree before that commit is made, so its `source_rev` names
+the HEAD it was recorded on, with `-dirty` marking the uncommitted
+changes the carrying commit then makes (a size-budget commit may land
+between the two: `asm_dasm_45gs02.json`'s `777ce61` sits below F5a's
+budget commit; `dev/capture_golden.py`).
 
 ### Size gate
 

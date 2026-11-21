@@ -431,4 +431,5 @@ an immediate out of range and an output wrap past `$FFFF`;
   own CPU set.
 - `mn7_classify` clobbers Y (sets Y=mn_c2).  `ldy #0` is required
   before zone dispatch.
-- `_asm_emit` clobbers A and Y and preserves X and C.
+- `_asm_emit` clobbers A and Y (on m65 also Z, `FAR_STA`) and
+  preserves X and C.

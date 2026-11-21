@@ -875,7 +875,7 @@ peek_user:
 ; ── arm_step_bp ─────────────────────────────────────────────────────
 ; Install step_next_lo / step_next_hi into the two step_bp slots.
 ; Zero entries (no target) leave slots un-armed.
-; Clobbers: A, X.
+; Clobbers: A, X; on m65 also Y and rp_ptr (step_bp_arm).
 ;
 arm_step_bp:
         jsr dbg_step_clear

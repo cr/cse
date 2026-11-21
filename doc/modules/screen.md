@@ -42,7 +42,7 @@ back to the build default.
 **Out:** VIC border ($D020) and background ($D021) set; the KERNAL
 text colour `$0286` (the colour CHROUT writes) = `theme_fg`; all 1024
 bytes of colour RAM from $D800 filled with `theme_fg`.
-**Clobbers:** A, X
+**Clobbers:** A, X (m65: A, X, Y)
 
 Writing `$0286` keeps user code that prints with `jsr $FFD2` in the
 theme colour instead of whatever colour BASIC left behind.
@@ -125,7 +125,8 @@ $D018=$16 (screen=$0400, charset=$1800 = char ROM $D800 =
 lowercase/uppercase font),
 $D015=0 (sprites off), $D01A=0 (no VIC IRQs),
 $D019=$0F (ack pending IRQ latches).
-**Clobbers:** A
+**Clobbers:** A (m65: A, X, Y, `sj_tmp`, and what `CHROUT` clobbers —
+it tail-calls `CHROUT` with `$0E`, the lower/upper-case set)
 
 Called on every userland → kernel transition (via
 `hygiene_after_userland` in repl.s) so user code that flipped VIC
@@ -239,8 +240,9 @@ position.  No KERNAL cursor — CSE manages its own with `$CC` = 1.
   (every reader re-derives it via `_io_scr_setup`).  It never writes
   ZP `$80`–`$FF`, so `$FB`–`$FE` survive every REPL scroll
   ([userland_contract.md § 2](../userland_contract.md)).
-- `scroll_up` ends with an unconditional CLI: called with I = 1, it
-  returns with interrupts enabled.
+- On c64 `scroll_up` ends with an unconditional CLI: called with
+  I = 1, it returns with interrupts enabled.  The m65 body (two DMA
+  jobs) does not touch I.
 - `scroll_up` saves/restores row indices via the 6502 stack
   (`pha`/`pla`).  Stack depth during scroll: 3 bytes (n, src_row,
   dst_row) plus the JSR return address.

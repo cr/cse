@@ -8,7 +8,7 @@
 |------|------|
 | [`src/mem.s`](../../src/mem.s) | implementation |
 | [`tests/unit/test_mem.py`](../../tests/unit/test_mem.py) | test contract |
-| [`tests/integration/test_m65_lens.py`](../../tests/integration/test_m65_lens.py) | test contract — `far_user` / `far_user_w` against the recorded CPU view of every banking state in `m65_mem.json` (slice 3, F2) |
+| [`tests/integration/test_m65_lens.py`](../../tests/integration/test_m65_lens.py) | test contract — `far_user` / `far_user_w` against the recorded CPU view of the banking states in `m65_mem.json` (all but the VIC-II personality's, 26 of 29; slice 3, F2) |
 | [`tests/emulator/test_m65_lens.py`](../../tests/emulator/test_m65_lens.py) | test contract (Tier X) — the monitor through a remapped program's map in xmega65, each ROM: `r ml:`, `m`, an edit, a row across a page edge, `M` (slice 3, F2) |
 
 ## Interface
@@ -127,7 +127,7 @@ CPU's view does after the resume.  For the address's 4 K page:
 | `$A000–$BFFF`, unmapped, `$D030` bit 4 or the port's LORAM+HIRAM | `2.A000–2.BFFF` | bank 0 |
 | `$C000–$CFFF`, unmapped, `$D030` bit 5 | `2.C000–2.CFFF` (the interface ROM) | bank 0 |
 | `$D000–$DFFF`, unmapped, the port's configuration above 4 | the I/O registers: `FFD.3000–FFD.3FFF` | the same |
-| `$D000–$DFFF`, unmapped, a configuration 1–4 | `2.D000–2.DFFF` (the character ROM) | bank 0 |
+| `$D000–$DFFF`, unmapped, a configuration 1–3 (0 and 4 are RAM: the last row) | `2.D000–2.DFFF` (the character ROM) | bank 0 |
 | `$E000–$FFFF`, unmapped, `$D030` bit 7 or the port's HIRAM | `2.E000–2.FFFF` | bank 0 |
 | anything else | bank 0 | bank 0 |
 
@@ -144,6 +144,15 @@ state of `m65_mem.json` (all but the VIC-II personality's — CSE's
 runs keep the MEGA65 personality) and holds every probed address's
 read and write targets to xmega65's; an I/O page's `FFD.3xxx` counts
 as the colour RAM the CPU reached at `$D800+`.
+
+### far_write_ok (m65 only)
+**In:** X = a far pointer's base-page offset.
+**Out:** C=1 when it addresses `2.0000–3.FFFF` — the ROM banks CSE
+keeps writable (the KERNAL, CSE, the source text) — in megabyte 0;
+else C=0.  The REPL's write guard (`cur_write_ok`, [repl.md §
+Banks](repl.md#banks-m65)) and the far-pointer seam
+([platform_layer.md](../platform_layer.md)) ask it.
+**Clobbers:** nothing (A, X, Y preserved).
 
 ### The resident stub (m65 only)
 
@@ -194,7 +203,7 @@ exit ([debugger.md](debugger.md)).
 |----------|------|---------|---------|
 | `userland_zp_buf` | `ZP_SAVE_LEN` | BSS | User's `[ZP_SAVE_LO, ZP_SAVE_LO + ZP_SAVE_LEN)` snapshot (captured on userland exit, restored on entry) |
 | `kernel_zp_buf` | `ZP_SAVE_LEN` | BSS | Kernel's snapshot over the same range (captured on userland entry, restored on exit) |
-| `stub_brk_target`, `stub_nmi_target`, `stub_cold_target` | 2 each | CSE's base page (m65; zp.s) | where the stub's CSE entries jump, indexed by X = 0, 2, 4 once the CSE map is back; written by `setup_interrupts` (main.s) and the loader.  Not in the stub: the dispatch runs under the CSE map, and the stub's 80 bytes are full |
+| `stub_brk_target`, `stub_nmi_target`, `stub_cold_target` | 2 each | CSE's base page (m65; zp.s) | where the stub's CSE entries jump, indexed by X = 0, 2, 4 once the CSE map is back; written by `setup_interrupts` (main.s) and the loader.  Not in the stub: the dispatch runs under the CSE map, and the stub's 80-byte area holds 76 bytes of code with 4 spare |
 | `um_map` | 6 | CSE's base page, `$00–$05` (m65) | the user's `MAP` setting as `hyppo_get_mapping` writes it — the trap writes at a page start, so these are the page's first six bytes |
 | `userland_zp_buf` (m65) | 2 | CSE's base page (m65) | the user's CPU port, `$00` and `$01`: the stub writes it under the user map, where only bank 0 is visible |
 | `um_d030` | 1 | CSE's base page (m65) | the user's `$D030` |
@@ -341,10 +350,11 @@ KERNAL is mapped in every map.
   `sym_define` / `sym_lookup` do).
 - `kernal_bank_out` / `kernal_bank_in` do not touch the I flag; the
   caller's I state survives a bank-out/bank-in pair.
-- `debugger.s::peek_user` (step targets through a ZP vector) reads
-  `userland_zp_buf` with the range `$00–$7F` built in, not through
-  `ZP_SAVE_LO` / `ZP_SAVE_LEN`; changing the save range means
-  changing it too.
+- `debugger.s::peek_user` (step targets through a ZP vector) picks
+  `userland_zp_buf` by `ZP_SAVE_LEN`: with the c64's `$80` the test
+  is the address's bit 7 (and assumes `ZP_SAVE_LO` = 0), else a
+  compare with `ZP_SAVE_LO + ZP_SAVE_LEN`; a c64 save range that
+  does not start at 0 means changing it too.
 - Workspace symbols (`workstart`, `workend`) are not mem.s's: they are
   defined by `gap_buffer.s::define_ws_syms` / `update_workend`
   ([gap_buffer.md](gap_buffer.md)).

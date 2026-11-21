@@ -230,18 +230,21 @@ into `main_loop`.
 Reached from `_main`, `handler_finalize`, `cse_recover`,
 `cse_end_debug` and (falling through) `cse_refresh`.
 
-**State** — **BSS (6 bytes):** (main.s keeps no mutable byte in
-CODE — [memory_design.md](../memory_design.md): no self-modifying
-code)
+**State** — **BSS (6 bytes):** on c64; 62 on m65, which has no
+`_irq_saved_a` and adds `esc_armed` and `vec_buf` (main.s keeps no
+mutable byte in CODE — [memory_design.md](../memory_design.md): no
+self-modifying code)
 
 | Variable | Exported | Purpose |
 |---|---|---|
-| `kernel_init_sp` | yes (no importer) | SP for `cse_end_debug`; `tsx` at the end of cold init (`STACK_TOP`), `STACK_TOP` again by `cse_recover`. |
+| `kernel_init_sp` | no | SP for `cse_end_debug`; `tsx` at the end of cold init (`STACK_TOP`), `STACK_TOP` again by `cse_recover`. |
 | `run_user_pending` | yes (repl.s) | `MODE_NONE` (0) / `MODE_JUMP` (1) / `MODE_RESUME` (2): set by `j`/`g`/`c`/`t`/`o`, dispatched by `main_loop` after `exec_line` returns. |
 | `stop_cooldown` | yes (repl.s) | RUN/STOP edge filter (§ Keyboard). |
 | `warm_guard` | no | `cse_recover` re-entry guard. |
-| `_irq_saved_a` | no | A while `cse_brk_handler_early` / `bank_out_stub` work. |
+| `_irq_saved_a` | no | (c64 only) A while `cse_brk_handler_early` / `bank_out_stub` work. |
 | `main_key` | no | the key `main_loop` is dispatching. |
+| `esc_armed` | no | (m65 only) the REPL's last key was ESC: a following 4, 5 or 8 switches the screen mode. |
+| `vec_buf` | no | (m65 only, `VEC_SIZE` = 56 bytes) the KERNAL's vector table, read and written through `VECTOR` by `setup_interrupts`. |
 
 `COLD_ZP` (`$F8DA`, 127 B under the KERNAL) holds the `$01–$7F`
 snapshot taken at cold init for `cse_exit_to_basic`.
@@ -601,6 +604,3 @@ Handled by `ed_handle_key`.  See [editor.md](editor.md).
   clears `kernal_out` so the redraw works from any bank-out window.
 - None of the warmstart entry points call `leave_editor` or touch the
   editor's buffer — the source survives every warmstart.
-- `kernel_init_sp` is exported but imported by no module; only
-  `cse_end_debug` reads it.
-- `main.s` imports `log_line` without using it.

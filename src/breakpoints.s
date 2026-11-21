@@ -122,13 +122,13 @@ bp_tmp:        .res 1          ; dbg_bp_del: slot × 2
 .segment "CODE"
 
 ; ── bp_init ──────────────────────────────────────────────────────────
-; Zero the full breakpoint table (40 bytes); set dbg_bp_hit = $FF.
+; Zero the full breakpoint table (TOTAL_SLOTS x SLOT_SIZE: 40 bytes, m65 60); set dbg_bp_hit = $FF.
 ; Called once by _main at cold init, before dbg_init (which handles
 ; the step state and the ZP-buffer seed).
 ; Clobbers: A, X.
 ;
 bp_init:
-        ldx #TOTAL_SLOTS * SLOT_SIZE - 1       ; 39
+        ldx #TOTAL_SLOTS * SLOT_SIZE - 1       ; 39 (m65 59)
         lda #0
 @z:     sta bp_table,x
         dex

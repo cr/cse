@@ -51,14 +51,15 @@ captured, so the hit test sees the byte the CPU executed.
 
 ## Table layout
 
-10 slots × 4 bytes = 40 bytes of BSS (`bp_table`).
+10 slots × `SLOT_SIZE` bytes of BSS (`bp_table`): 10 × 4 = 40 bytes
+on c64, 10 × 6 = 60 on m65.
 
 | Slots | Role | Manipulated by |
 |---|---|---|
 | 0–7 | User-visible breakpoints | `b` command via `dbg_bp_set` / `dbg_bp_del` / `dbg_bp_clear` / `dbg_bp_find` / `dbg_bp_count` |
-| 8–9 | Step-BP pair (alias `step_bp = bp_table + 32`) | `debugger.s::arm_step_bp` (writes directly) + `dbg_step_clear` |
+| 8–9 | Step-BP pair (alias `step_bp = bp_table + 8 × SLOT_SIZE`: `+ 32` on c64, `+ 48` on m65) | `debugger.s::arm_step_bp` (writes directly) + `dbg_step_clear` |
 
-Slot format (4 bytes):
+Slot format on c64 (4 bytes; m65's is § Purpose's table):
 
 | Offset | Byte |
 |---|---|
@@ -67,11 +68,12 @@ Slot format (4 bytes):
 | +2 | saved byte (the opcode that was there before we patched BRK over it) |
 | +3 | flags: bit 0 = enabled, bit 7 = patched (the `$00` is in memory now; set by `patch_all`, cleared by `unpatch_all`) |
 
-A slot is empty when `addr_lo | addr_hi == 0`.  A breakpoint at
+A slot is empty when `addr_lo | addr_hi == 0` (on m65 the bank too).  A breakpoint at
 `$0000` is therefore not representable — acceptable because `$0000`
 is the CPU port (DDR), never a meaningful breakpoint target, and the
 only caller that takes a user address (`repl.s::cmd_brk`) accepts
-only `$0800 ≤ addr < buf_base` before it calls `dbg_bp_set`.
+only `$0800 ≤ addr < buf_base` before it calls `dbg_bp_set` (on m65
+only user memory, which starts at `0.2000`).
 
 `dbg_bp_hit` (1 byte) names the user slot (0–7) of the breakpoint the
 last break stopped at, `$FF` for none.  Writers: `bp_init`,
@@ -85,7 +87,7 @@ and `end_debug_body` (`$FF`).  Readers (`repl.s`): the break panel
 
 ### bp_init
 **In:** none
-**Out:** `bp_table` zeroed (all 40 bytes); `dbg_bp_hit = $FF`.
+**Out:** `bp_table` zeroed (all 40 bytes; 60 on m65); `dbg_bp_hit = $FF`.
 **Clobbers:** A, X.
 
 Cold-init entry for the table.  Called once at boot by `main.s`'s
@@ -112,9 +114,9 @@ nothing (C=1 only when all eight slots are in use).
 ### dbg_bp_del
 **In:** A = slot number (0–7)
 **Out:** C=0 success; C=1 invalid slot (A=$FF)
-**Clobbers:** A, X.
+**Clobbers:** A, X; on m65 also `bp_tmp`.
 
-Zero all four bytes of the indexed slot.  If the slot is the one
+Zero all `SLOT_SIZE` bytes of the indexed slot (4 / 6).  If the slot is the one
 `dbg_bp_hit` names, `dbg_bp_hit` becomes `$FF`: the hit breakpoint is
 gone, so `c` must not delete whatever is set in that slot later.
 
@@ -162,14 +164,13 @@ never writes a stale `saved` byte into the user's code.
 Iteration order: slot 9 → slot 0 (reverse).  See `patch_all` for the
 overlap rationale.
 
-**On m65** (both routines): a slot's address is a user address in
-the workspace — `b` and the step gate refuse every other address but
-`brk_stub` ([debugger.md § Caveats](debugger.md#caveats)) — so every
-target is in bank 0 below `$C000`, the first row of
-[platform_layer.md § Far memory](../platform_layer.md#far-memory)'s
-user-address table.  Each routine sets `rp_ptr`'s bank once, `FAR_BANK
-rp_ptr, BANK_USER`, before its loop, and the loop rewrites only the
-offset; the reads and writes are `FAR_LDA` / `FAR_STA`.
+**On m65** (both routines): a slot holds a flat address, and each
+slot's turn loads all four of its bytes — offset, bank, megabyte —
+into `rp_ptr` (`SLOT_PTR`); the read and the write are `FAR_LDA` /
+`FAR_STA` through it.  No bank state is consulted, so the byte patched
+is the byte restored whatever the map did in between.  A target is
+whatever `b` and the step gate admit: user memory in banks 0, 1, 4
+or 5, or `brk_stub` ([debugger.md § `b`](debugger.md#b)).
 
 ### dbg_step_clear
 **In:** none
@@ -180,13 +181,42 @@ Called by `debugger.s::arm_step_bp` before installing fresh step BPs
 and by `repl.s::step_cleanup` when a step ends, is refused, or the
 session ends.
 
+### dbg_bp_set_flat / dbg_bp_find_flat (m65)
+**In:** `rp_ptr` = a flat address (offset, bank, megabyte)
+**Out, Clobbers:** as `dbg_bp_set` / `dbg_bp_find`, which translate
+their CPU address A/X through the program's bank state (`FAR_USER`)
+into `rp_ptr` and fall into these.  Caller: `repl.s::cmd_brk` calls
+`dbg_bp_set_flat` for a flat literal (`b H.AAAA`); `dbg_bp_find_flat`
+is exported with no importer (`dbg_bp_set_flat` runs it first).
+
+### dbg_step_find (m65)
+**In:** A = addr lo, X = addr hi (a break's PC)
+**Out:** C=0 when the address, translated through the program's bank
+state, is one of the step slots' flat addresses; C=1 not.
+**Clobbers:** A, X, Y, `rp_ptr`.
+
+Caller: `main.s::cse_brk_handler`, to tell a step BRK from any other.
+
+### step_bp_arm (m65)
+**In:** A = addr lo, X = addr hi (a next PC); Y = the step slot's
+offset in `step_bp` (0 or `SLOT_SIZE`)
+**Out:** that slot = the address's flat address under the program's
+bank state, saved 0, flags 1 (enabled, not patched).
+**Clobbers:** A, X, Y, `rp_ptr`.
+
+Caller: `debugger.s::arm_step_bp`.
+
 ### Memory
 
-**BSS (41 bytes):** `bp_table` (40), `dbg_bp_hit` (1).
+**BSS (41 bytes):** `bp_table` (40), `dbg_bp_hit` (1) on c64; 62 on
+m65: `bp_table` (60), `dbg_bp_hit` (1), `bp_tmp` (1, `dbg_bp_del`'s
+slot × 2).
 **ZP (0 bytes owned; reads rp_ptr as scratch for address-indirect writes).**
 
-**Depends on:** `zp` (for `rp_ptr`).  Nothing else.  This is what
-makes the module bundle-testable at Tier U with a minimal stub.
+**Depends on:** `zp` (for `rp_ptr`); on m65 also `mem` (`far_user`,
+through `FAR_USER`: a CPU address's flat address).  Nothing else.
+This is what makes the module bundle-testable at Tier U with a
+minimal stub (c64).
 
 ## Test contract
 
@@ -209,6 +239,15 @@ makes the module bundle-testable at Tier U with a minimal stub.
   `dbg_step_clear` zeroes exactly them.
 - `TestOverlap` — a step slot on a breakpoint's address, and both
   step slots on one address: the user's byte survives.
+
+The Tier-U bundle is the c64 table (4-byte slots).  The m65 table
+(6-byte flat slots) is covered at Tier I on the m65 PRG:
+`tests/integration/test_m65_repl.py` § flat breakpoints (`b H.AAAA`,
+a CPU address listed as its physical byte, a breakpoint that belongs
+to its physical byte across a remap, `;?range` outside user memory,
+a breakpoint in far code hit by a far start) and
+`tests/integration/test_m65_debugger.py` (the workspace gates, a hit
+that restores its byte and resumes, the step chain).
 
 The step/BRK/userland-transition state machine that drives the table
 ([debugger.md](debugger.md)) is covered at integration tier by

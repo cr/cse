@@ -73,7 +73,7 @@ into memory.
 **Type in lowercase.**  CSE runs in the C64's lowercase character
 set: commands, mnemonics, labels and hex digits are typed without
 SHIFT (`lda $d020`).  SHIFTed letters are separate keys — `B`, `C`,
-`Q` and `R` are commands of their own — and hex digits must be
+`Q` and `R` (and `M` on the MEGA65) are commands of their own — and hex digits must be
 lowercase: `$d020` is a number, `$D020` typed with SHIFT is an error.
 
 ### Your workspace
@@ -84,7 +84,8 @@ CSE itself sits above it.  The assembler refuses to write outside
 the workspace (`;?N: range`), and breakpoints must be inside it.
 Type `i` to see where `workend` is right now; it moves down as your
 source grows.  Every example address in this manual (`$1000`,
-`$2000`) is a workspace address.
+`$2000`) is a workspace address.  On the MEGA65 the workspace is the
+fixed `$2000`–`$bfff`: the source text lives in another bank.
 
 ### The edit-assemble-run cycle
 
@@ -239,7 +240,7 @@ hex digits.
 | `.` | `. MNEM [OPERAND]` | Assemble one instruction at current address |
 | `d` | `d` | Disassemble block-size bytes |
 | `m` | `m [HHHH]` | Hex+character dump of block-size bytes (at `HHHH` if given) |
-| `m` | `m HH [HH] ...` | Write up to 8 bytes at current address |
+| `m` | `m HH [HH] ...` | Write up to 8 bytes at current address (16 on the MEGA65) |
 | `i` | `i` | Show full memory map |
 
 `m` and `.` show and edit **your** zero page: `$00`–`$7f` as your
@@ -347,7 +348,8 @@ saves bytes `$1000..$2000` inclusive, i.e. `$1001` bytes.  If end ≤
 start, the arg is treated as a length.  End = 0 saves one block size.
 
 After a source load or save CSE prints `; Nl Mb` (lines, bytes) and
-warns `;!long LNN` for each line wider than the editor's 39 columns.
+warns `;!long LNN` for each line wider than the editor's 39 columns
+(79 on the MEGA65).
 Loading source over unsaved edits asks `;!load? y/n` first.
 
 ### Utility
@@ -400,9 +402,9 @@ leading `;` makes the row a comment, so RETURN on it does nothing.
 |-----|---------|
 | `;?syntax` | The command or instruction could not be parsed: unknown mnemonic or addressing mode, extra text after the arguments, a bad `r` field, a missing closing `"` |
 | `;?cpu` | Mnemonic isn't valid for the current CPU mode (e.g. `lax` in mode `6502` on the 6510 build, `taz` in mode `6502` on the MEGA65) |
-| `;?expr <detail>` | Expression error.  `<detail>` is one of: `exp val` (expected a value), `ovfl` (overflow), `exp )` (missing parenthesis), `undef` (undefined symbol), `div0` (divide by zero) |
+| `;?expr <detail>` | Expression error.  `<detail>` is one of: `exp val` (expected a value), `ovfl` (overflow), `exp )` (missing parenthesis), `undef` (undefined symbol), `div0` (divide by zero); on the MEGA65 also `range` (a value too wide for the argument: above 16 bits where 16 are taken, above 28 bits for an address) |
 | `;?bad val` | `b -N` with N not 1–8 |
-| `;?range` | Address outside the workspace (`b`), or a save of 0 bytes |
+| `;?range` | Address outside the workspace (`b`), or a save of 0 bytes; on the MEGA65 also a write into the ROM banks 2–3 (`m`, `.`) and a far start outside `JSRFAR`'s window (`j`, `g`) |
 | `;?full` | All 8 breakpoints are in use |
 | `;?cmd` | Unknown REPL command |
 | `;?no ctx` | `c` with no program stopped at a break; `t` / `o` after the program has ended |
@@ -421,7 +423,7 @@ runs nothing, `+ nosuch` moves nowhere.
 | `;!<action>? y/n` | Confirm `del src` (`k`), `quit` (`Q`), `init` (`R`), `load`, `asm`, `go`; `y` proceeds, any other key cancels |
 | `;!range` | A step was refused: its next instruction is outside the workspace |
 | `;!stk N` | Your program's stack pointer was below `$40` at the break (`N` is its value, decimal): CSE needs 64 bytes of stack below it |
-| `;!long LNN` | Source line `NN` is wider than 39 columns (after a load or save) |
+| `;!long LNN` | Source line `NN` is wider than 39 columns, 79 on the MEGA65 (after a load or save) |
 | `;!a shadow` | Source line wrote `<acc-mne> a` (e.g. `asl a`) but a label `a` is also defined.  The accumulator wins; the label is shadowed for that mnemonic.  Use a different name or write the address explicitly to reach the label from one of the six ACC-accepting mnemonics. |
 
 ### Source-assembly messages
@@ -441,10 +443,10 @@ line 42), and ends with `; N err` instead of `; ok`.
 | `fwd ref` | `.res` / `.align` (or a `.const`) uses a symbol defined further down |
 | `too long` | Label longer than 23 characters, or an instruction too long after local labels are expanded |
 | `sym full` | Symbol table full |
-| `range` | The line would write outside the workspace; nothing is written |
+| `range` | The line would write outside the workspace; nothing is written.  On the MEGA65 also an instruction operand wider than 16 bits, such as a label in another bank ([doc/modules/expr.md § 32-bit values](doc/modules/expr.md#32-bit-values-m65)) |
 
-`;!N: truncated` warns that line `N` has more than 39 characters;
-the assembler reads only the first 39.
+`;!N: truncated` warns that line `N` has more than 39 characters
+(79 on the MEGA65); the assembler reads only the first 39 (79).
 
 ## Editor
 
@@ -504,6 +506,9 @@ is `;?N: exp val`.
     lda ($42),y     ; (indirect),y
     jmp ($1000)     ; indirect
     lda ($42),z     ; zero page indirect,z (MEGA65)
+    lda [$42],z     ; 32-bit pointer indirect,z (MEGA65, 45GS02)
+    lda ($02,sp),y  ; stack-relative indirect,y (MEGA65)
+    phw #$1234      ; 16-bit immediate (MEGA65)
     jmp ($1000,x)   ; absolute indirect,x (MEGA65)
     rol             ; accumulator (bare form)
     rol a           ; accumulator (explicit form, equivalent)
@@ -521,7 +526,7 @@ is `;?N: exp val`.
     .scr "hello"            ; emit screen codes
     .res 256, $ea           ; reserve and fill
     .align 256              ; align to boundary
-    .bas                    ; BASIC SYS stub at $0801
+    .bas                    ; BASIC SYS stub at $0801 ($2001 on the MEGA65)
     .bas "title"            ; BASIC SYS stub with REM
 
 ### Expressions
@@ -546,6 +551,11 @@ Operators (loosest to tightest):
 
 Width rule: `$xx` (1–2 hex digits) is zero-page; `$0xx`+ (3–4
 digits) forces absolute.  Width is sticky across operators.
+
+On the MEGA65 values are 32 bits: `$` takes up to 8 hex digits (5–8
+digits are a far value), numbers go to `$ffffffff`, and a flat
+address `4.2000` (bank, dot, offset) is a literal
+([doc/modules/expr.md § 32-bit values](doc/modules/expr.md#32-bit-values-m65)).
 
 ### Example
 
@@ -634,8 +644,8 @@ REPL to clear it, or press SHIFT+CLR/HOME to redraw it.
 
 | Symbol | Value | Description |
 |--------|-------|-------------|
-| `workstart` | `$0800` | Start of the workspace |
-| `workend` | the byte below the source text (moves as the source grows) | End of the workspace |
+| `workstart` | `$0800` (`$2000` on the MEGA65) | Start of the workspace |
+| `workend` | the byte below the source text (moves as the source grows); `$bfff` on the MEGA65, fixed | End of the workspace |
 
 Use in assembler: `.org workstart`
 
@@ -668,8 +678,10 @@ Where it differs from the C64 build:
   editor.  A switch clears the screen.
 - **Wider rows.**  In 80 columns an `m` row shows 16 bytes (8 in 40
   columns); an `m` edit takes up to 16 bytes in any mode.  `r` shows
-  two more registers, `z:` and `b:` — on one row in 80 columns, on a
-  second row `r z:XX b:XX` in 40.
+  two more registers, `z:` and `b:`, and your program's memory map,
+  `ml:XXXX mh:XXXX` (its `MAP`, editable like the registers) — on one
+  row in 80 columns, on a second row `r z:XX b:XX ml:XXXX mh:XXXX`
+  in 40.
 - **The CPU.**  The assembler and the disassembler speak the
   45GS02 by default — its 4510 instructions, the quad `q`
   instructions and 32-bit `[ ]` addressing — and the 4510 or the
@@ -684,7 +696,8 @@ Where it differs from the C64 build:
   instruction takes its own bank's addresses, `.dd` emits 32-bit
   words, and `g` starts a `main` in a bank.  `@`, `j`, `b` and `m`
   take any expression as their address (`j main`, `b loop+3`,
-  `m buf+$10`; `m HHHH` stays hex)
+  `m buf+$10`; `m HHHH` stays hex).  `M` (SHIFT+M) lists your
+  program's memory map, a row per run of 8 K blocks that map alike
   ([doc/modules/repl.md § Banks](doc/modules/repl.md#banks-m65)).
 - **The editor** uses the whole screen of the current mode, and a
   source line may be 79 columns wide (39 on the C64; the C64 build
@@ -732,9 +745,14 @@ All design docs, module specs, and project goals live in
   Required for `make run`; also bundles `c1541` which the
   release build uses to write the `.d64` disk image.
 - Python 3 + [pipenv](https://pipenv.pypa.io/) -- pipenv manages
-  the test virtualenv (py65, pytest, pytest-xdist).  `make
+  the test virtualenv (py65, pytest).  `make
   tables` (auto-triggered by `make`) also runs Python.
 - C64 KERNAL ROM for testing (copied from VICE; see `make test`).
+- For the MEGA65 build: [xmega65](https://github.com/lgblgblgb/xemu)
+  for `make run PLATFORM=m65`; the MEGA65 ROM, copied from xmega65 by
+  `make m65-rom`; and, for its tests, the post-boot snapshots that
+  `dev/capture_m65_state.py` records in xmega65
+  ([doc/build_system.md § MEGA65 ROM](doc/build_system.md#mega65-rom)).
 
 ## License
 

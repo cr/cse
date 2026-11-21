@@ -69,7 +69,9 @@ cleared to the end of the row, then `newline`):
 A key in the keyboard buffer between entries is taken: RUN/STOP ends
 the listing early with `break` (no blocks-free line); any other key
 is dropped and the listing goes on.  With no device, or on an open
-or read error, nothing is printed; no file is left open.
+error (on m65 a `LOAD` error), nothing is printed; on c64 a read
+error ends the listing where it is, without the blocks-free line.  No
+file is left open.
 **Clobbers:** A, X, Y, `disk_ptr` (m65), `_io_tmp`, `fl_buf`, and
 what `newline` clobbers — **none of the user's memory**.
 
@@ -177,8 +179,8 @@ jump table ([platform_layer.md](../platform_layer.md) § Constants,
   not into the user's program region: a full D81 directory (296 entries)
   is under 10 K.  `PLAT_SETBNK DIR_BANK` gives `LOAD` that bank; the
   walk reads it through `disk_ptr` with `FAR_BANK disk_ptr, DIR_BANK`.
-  So `$` leaves the user's memory alone on m65 (on c64 it clobbers
-  the workspace from `$0801`).  It overwrites the ROM's font C copy
+  So `$` leaves the user's memory alone, as the c64's streamed
+  listing does.  It overwrites the ROM's font C copy
   at `2.D000`, which the display does not use: the screen keeps the
   VIC-IV's internal character set (CHARPTR `$001800`).
 - **The pointer banks.**  `disk_save_prg` reads the program through

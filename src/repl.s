@@ -247,7 +247,7 @@ _arg_count:        .res 1          ; 0, 1, or 2 — numeric args in last parse
 line_buf:       .res 2 + SCREEN_WIDTH_MAX
 rp_next_hi:     .res 2          ; 16-bit scratch pair (rp_next_lo lives in zp.s)
 rp_opc:         .res 1          ; saved opcode (cmd_dot / emit_hex_cols)
-rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*4 ($FF=none)
+rp_dis_bp:      .res 1          ; cmd_step: disabled bp slot*SLOT_SIZE ($FF=none)
 rp_hexbuf:      .res INSN_MAX    ; cmd_dot hex byte parse
 cold_preview_done: .res 1       ; cold-preview marker.  Set by
                                 ; cmd_step's cold-preview branch
@@ -1684,8 +1684,11 @@ try_addr_or_err:
 ; bp_range_check: addr must be in [workstart, workend].
 ;   workstart = WORKSTART (fixed); the upper bound is the workspace's
 ;   (platform_layer.md § Constants): c64 buf_base (dynamic, workend =
-;   buf_base - 1), m65 HIMEM (fixed, page-aligned).
-;   Equivalently:  WORKSTART <= addr < the bound.
+;   buf_base - 1).  Equivalently:  WORKSTART <= addr < the bound.
+;   m65: the address must be at least WORKSTART, then bp_cpu_ok takes
+;   it through the program's bank state to its physical byte, which
+;   must be user memory (0.2000-0.BFFF, 1.2000-1.F6FF, banks 4-5);
+;   it also clobbers X and lens_ptr.
 ;   Used by cmd_brk (managed bp creation) — strict gate, errors
 ;   on out-of-range.
 ;
@@ -5478,7 +5481,7 @@ prg_ok_done:
 .endproc
 
 ; ── step_cleanup — end a step: no step state, step slots zeroed, the
-; breakpoint cmd_step disabled (rp_dis_bp = slot × 4) enabled again,
+; breakpoint cmd_step disabled (rp_dis_bp = slot × SLOT_SIZE) enabled again,
 ; rp_dis_bp := $FF.  Shared by post_run_cleanup (step landed), cmd_step
 ; (step refused) and main.s's end_debug_body (session ended).
 ; Clobbers: A, X.

@@ -75,8 +75,9 @@ catches doc-code drift after the fact; step 2 catches design
 gaps before code lands.  Cautionary example: the `.` REPL
 command's missing ACC label-shadow warning (Phase 25) survived
 implementation because step 2 had not audited the dot-command
-pre-eval path, which bypasses `mode_parse`'s shadow detection
-by pre-evaluating via `expr_eval`.
+pre-eval path, which bypassed `mode_parse`'s shadow detection
+by pre-evaluating via `expr_eval` (until 2026-11-20, when `.`
+began handing its line to `asm_line`).
 
 **Step 3 — TDD Analysis.**  Defined in full in
 [testing.md § The TDD Method](testing.md#the-tdd-method).  Identifies test gaps,
@@ -1180,12 +1181,13 @@ rename at the cost of a single comparison byte at the consumer.
 | [architecture.md](architecture.md) | Module map, dependency graph, module summaries → `modules/` |
 | [glossary.md](glossary.md) | Shared terminology (instruction, operand, label, ZP, PETSCII, ...) |
 | [project_layout.md](project_layout.md) | Directory structure |
-| [memory_design.md](memory_design.md) | Memory maps (PRG/CRT), ZP layout, stack contract, banking |
+| [memory_design.md](memory_design.md) | Memory maps (C64 PRG/CRT, m65), ZP layout, stack contract, banking |
 | [design_cse_as_kernel.md](design_cse_as_kernel.md) | Cross-cutting design: CSE-as-kernel framing, RTI/BRK transitions, vector ownership |
 | [userland_contract.md](userland_contract.md) | What user code may rely on / must preserve: three-tier state contract, kernel-as-terminal, vector/banking hazards |
 | [platform_layer.md](platform_layer.md) | The platform driver layer: the seams between CSE and the machine (KERNAL entries and cells, banking, maps, interrupt frame, screen, keyboard, loader) with each seam's contract per platform (c64, m65, c128) |
 | [build_system.md](build_system.md) | Toolchain, build pipeline, targets, options, test binaries |
 | [testing.md](testing.md) | The TDD Method, py65 harness conventions |
+| [optimization.md](optimization.md) | Catalog of the code-size reduction techniques applied in CSE |
 
 ### User-facing behaviour
 
@@ -1202,6 +1204,7 @@ rename at the cost of a single comparison byte at the consumer.
 | [TODO.md](TODO.md) | Outstanding work: bugs, features, cleanup, architecture |
 | [templates/README.md](templates/README.md) | Active document templates and their coverage |
 | [cdd_log.md](cdd_log.md) | CDD Log — running self-review of how the CDD System serves each milestone (newest entries on top); findings feed the next Maintenance round |
+| [vice_test_plan.md](vice_test_plan.md) | The manual VICE checklist the v0.1 release candidates were run against — a closed record, not maintained against the current code |
 
 ### Authoritative data files (dev/)
 

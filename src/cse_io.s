@@ -469,10 +469,9 @@ io_kbd_flush:
 ; feedback for refused input (line cap, backspace into the
 ; left wall, cursor at a screen edge).
 ;
-; The volume register stays set to 10 after the first call
-; (the SID's amp/filter byte at $D418).  This is intentional:
-; later blips skip the re-init cost.  User code that wants
-; its own SID setup will reinitialize.
+; The volume register ($D418) is written on every call and stays
+; at 10 after it; user code that wants its own SID setup
+; reinitializes.
 ;
 ; Clobbers: A, X.  Preserves Y.
 .proc io_blip
@@ -484,7 +483,7 @@ io_kbd_flush:
         sta SID_VOL
         lda #$11                ; gate=1, triangle=1
         sta SID_V1_CTRL
-        ; Brief busy-wait (~200 cycles ≈ 0.2 ms)
+        ; Brief busy-wait (~1000 cycles: ~1 ms on the C64, ~25 us at 40 MHz)
         ldx #200
 @wait:  dex
         bne @wait

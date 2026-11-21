@@ -192,12 +192,19 @@ the routine substitutes `asm_pc + 2` (wide) rather than signalling
 `asm_expr_error`.  expr_eval has already parsed the *whole*
 expression ([expr.md § Undefined symbols](expr.md#undefined-symbols)),
 so `expr_ptr` is past it and the operand's tail — `tbl+1`, `fwd+3,x`,
-`(fwd+1),y` — is parsed as on pass 1.  This lets the sizing pass
+`(vec)` of `JMP` — is parsed as on pass 1.  This lets the sizing pass
 proceed past forward references with the same size pass 1 will use.
 On pass 1 the symbol is defined (pass 0 defined it), but its pass
 stamp marks it as a forward read, so `expr_eval_nb` makes it wide —
 the same ABS size — and the operand gets the real value
 ([symtab.md § Pass stamp](symtab.md#pass-stamp)).
+
+A form whose operand is zero-page only — `(zp),y`, `(zp,x)`, the
+CMOS `(zp)`, the `zp,rel` of BBR/BBS, and on m65 `(zp),z`, `[zp],z`
+and `(d,sp),y` — has no wide variant, so a forward symbol there is
+wide on both passes and the line fails with `;?N: bad insn`
+(`asm_syntax_error`).  Such a pointer must be defined above its use
+(TODO § Bugs: a forward zero-page pointer never assembles).
 
 ## Caveats
 

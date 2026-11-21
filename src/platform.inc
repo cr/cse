@@ -428,7 +428,7 @@ LINE_MAX        = 79                ; a source line's length (D-P2-5): 80 column
 .endmacro
 
 ; A conditional branch across KCALLs: `op target` on c64; on m65,
-; where a KCALL is 14 bytes, `inverse` over a JMP.  KC_BRANCH bmi, bpl, @t
+; where a KCALL is 13 bytes, `inverse` over a JMP.  KC_BRANCH bmi, bpl, @t
 .macro KC_BRANCH op, inverse, target
   .ifdef PLATFORM_C64
         op target

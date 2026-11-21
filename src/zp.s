@@ -3,9 +3,10 @@
 ;
 ; Single source of truth for the entire ZP allocation.  Every ZP variable
 ; in the project is defined here and exported.  Modules .importzp what they
-; need.  The linker places this segment at $02 (per c64_trial.cfg).
+; need.  The linker places this segment at $02 on c64 (c64_cse.cfg.in,
+; c64_trial.cfg) and at $00 of CSE's base page on m65 (m65_cse.cfg).
 ;
-; Total: 122 bytes ($02–$7B).  First free: $7C (see the tail below).
+; c64 total: 122 bytes ($02–$7B).  First free: $7C (see the tail below).
 ; Allocation table and user-ZP rules: doc/modules/zp.md.
 ;
 ; m65: CSE's own base page (0.1F00), shared with no one, so the C64's
@@ -48,8 +49,8 @@ scr_width:      .res 1
 scr_last_col:   .res 1          ; width - 1
 
 ; ── disk.s (m65; disk.md § On m65) ───────────────────────────────────
-; The filename pointer DISK_LOCAL_PTR (c64: $FD): it reads only CSE's
-; own view, so a plain pointer, no bank.
+; The filename pointer DISK_LOCAL_PTR (c64: its own cell at $7A,
+; below): it reads only CSE's own view, so a plain pointer, no bank.
         .exportzp disk_local_ptr
 disk_local_ptr: .res 2
 
@@ -165,7 +166,7 @@ _st_idx:        .res 1          ; current probe index
 _st_ptr:        .res 2          ; pointer to current entry
 _st_nptr:       .res 2          ; pointer for name comparison
 _st_heap:       .res 2          ; current heap write pointer
-_st_heap_base:  .res 2          ; heap base (fixed at $E600)
+_st_heap_base:  .res 2          ; heap base (SYM_HEAP: c64 $E600, m65 $A700)
 
 ; ── dasm.s: disassembler scratch ──────────────────────────────────────── $41
         .exportzp _dasm_ptr, _dasm_mne, _dasm_wptr, _dasm_midx, _dasm_mode

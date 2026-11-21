@@ -23,7 +23,9 @@ the CPU view — one member of the build's CPU set
 ([build_system.md § Builds and CPU sets](../build_system.md#builds-and-cpu-sets)).
 **Out:** A = instruction length (1–3 on C64 builds; 1–5 on the m65
 build, prefixes included).  `dasm_buf` filled with
-NUL-terminated PETSCII string.  `$01` as the caller had it.  On
+NUL-terminated PETSCII string.  On c64 the KERNAL banked in
+(`kernal_bank_in`; unchanged inside a `kernal_out` batch); on m65 the
+bank calls are no-ops.  On
 `MEGA_SUPPORT` also `_dasm_in[0]` = the base opcode and `_dasm_pfx` =
 the prefixes peeled (0 = none; § Prefix peel), which the debugger's
 step reads.

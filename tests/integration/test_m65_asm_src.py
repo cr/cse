@@ -18,7 +18,8 @@ The banks (F5b): a flat `.org` into banks 1, 4 and 5, the emit gate's
 edges and the bank-end wrap, `.org`'s limits (28 bits; a negative one
 is its low word), flat labels, the same-bank rule's refusals, `.dd`,
 the segment and save lines, `.bas` back in bank 0, `a`'s default
-origin at a flat address, `info_bank` left 0, no bank after `a`.
+origin at a flat address, `info_bank` left 0, no bank after `a`, and
+a refused `.dw` / `.dd` value that still lays out its bytes.
 """
 
 from m65emu.harness import flat

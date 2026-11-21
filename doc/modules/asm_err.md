@@ -49,7 +49,9 @@ The detail is in expr.s's `last_err`.
 
 Jumped to by `asm_line.s`'s CPU-mode gate when a mnemonic is rejected
 for the current `asm_cpu` (LAX on 6502, a 65C02-only opcode at 6502 in the CMOS mode,
-…).  The distinct code lets the dispatcher emit `;?cpu` instead of the
+…); on m65 also by the `q`-suffix check (a quad stem off the 45GS02)
+and by `_asm_m65_mode` (a far operand `[e]` / `[e],z` off the
+45GS02).  The distinct code lets the dispatcher emit `;?cpu` instead of the
 strictly-correct-but-misleading `;?syntax`.
 
 ### asm_err_code, asm_pass
@@ -76,21 +78,22 @@ The source assembler's line format is owned by
 [asm_src.md § Error and warning lines](asm_src.md#error-and-warning-lines).
 
 The four entry points share a single 13-byte tail (`sta asm_err_code`
-through `rts`); the distinguishing `lda #N` is implemented as a
+through `rts`; 14 on m65, where `ldx _asm_saved_sp` is absolute); the distinguishing `lda #N` is implemented as a
 BIT-abs skip cascade so the three loaders chain into the shared
 store + unwind tail.
 
 ### Memory
 
 **ZP (1 byte):** `_asm_saved_sp` — SP snapshot taken at asm_line entry,
-used by the error exits to unwind nested `jsr` frames in one step.
+used by the error exits to unwind nested `jsr` frames in one step
+(m65: zp.s's BSS, absolute).
 
 **BSS (2 bytes):**
 
 | Name | Size | Purpose |
 |---|---|---|
 | `asm_err_code` | 1 | Error category (0/1/2 per the table above), set by every error exit; read by callers (asm_src.s, repl.s) for tag dispatch |
-| `asm_pass` | 1 | 0 = pass 0 (sizing), 1 = pass 1 (emit).  Written by `asm_src.s` at the start of each pass (and forced to 1 around `_vocal_fwd_err`); read by `addr_mode.s` (`_au_read_val` forward references, the shadow warning) and `asm_src.s` (`emit_error`, `_emit_byte`, `.db`/`.const` checks) |
+| `asm_pass` | 1 | 0 = pass 0 (sizing), 1 = pass 1 (emit).  Written by `asm_src.s` at the start of each pass (and forced to 1 around `_vocal_fwd_err`) and set to 1 by `repl.s`'s `dot_assemble` (the `.` command: one pass); read by `addr_mode.s` (`_au_read_val` forward references, the shadow warning) and `asm_src.s` (`emit_error`, `_emit_byte`, `.db`/`.const` checks) |
 
 **Depends on:** mem (`kernal_bank_in`), zp (`_asm_saved_sp`)
 
@@ -169,8 +172,10 @@ live.
 - `asm_pass` reset at the start of each pass is asm_src.s's
   responsibility.  asm_err.s only declares and exports it.
 - `asm_cpu_error` is the *only* error exit not used by the syntactic
-  parsing chain; it is reached only from `asm_line.s`'s CPU-mode gate,
-  after a successful classify but before any mode parsing.
+  parsing chain; it is reached from `asm_line.s`'s CPU-mode gate,
+  after a successful classify but before any mode parsing, and on m65
+  also from the `q`-suffix check right after it and from
+  `_asm_m65_mode` after mode parsing (a far operand at `asm_cpu` ≠ 4).
   Strict-syntax errors (unknown mnemonic, bad mode, REL out of range)
   all stay on `asm_error` because the user's immediate problem is the
   source text, not the CPU profile.

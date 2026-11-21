@@ -34,6 +34,150 @@ is per-session, the project's working state recap.
 
 ---
 
+## Full CDD Maintenance and Quality Sweep (2026-11-21)
+
+The first whole-repository round since 2026-11-18, after slice 3 and
+the pre-release bug round.  Operator-invoked; output mode
+*fix-the-docs* (TODO § Next): doc defects fixed inline, code and test
+findings filed under TODO § Bugs, every release PRG byte-identical.
+
+**Lenses.**  Maintenance items 1–10 mechanically (`audit_doc.py`,
+`audit_platform_literals.py`, `audit_phase_markers.py`), then six
+read-only probers at once, each on its own axis: doc-slice ×2 (the
+assembler modules; the kernel and I/O modules), *contract / perf*
+(error semantics, seams, the userland contract, size and cycle
+claims, build variants), *status / structure* (temporal accuracy,
+tables and maps against the linker maps, tests-as-corpus), one
+depth-first adversarial read of `repl.md`, and items 5 / 6 / 8 (the
+glossary, TODO, the user manual run on both emulators).  The first
+three of these axes had not been used before.
+
+**Yield.**  About 140 hypotheses.  Doc fixes: ~100, made by four
+fixers on disjoint file groups (repl.md; the assembler docs; the
+kernel and I/O docs; the system docs, the README and the glossary),
+each re-verifying its items against the live code first (2 skipped
+as already right), plus the lead's TODO hygiene and source comments.
+Code and test findings filed: 1 C64, 6 m65, 11 both-platform, 3 test
+gaps — among them `.` writing CSE's live zero page on the C64, a flat
+`m` run spilling into the ROM banks, `run_bank` surviving
+`cse_recover`, and forward zero-page pointers in indirect forms
+never assembling.  The 1B symbol scanner learned `.macro` names and
+Python module constants: 30 false misses down to 13.
+
+### What worked
+
+- **Disjoint lenses again found disjoint classes.**  The deep read
+  of one doc found eight live code bugs no doc-slice saw (end-address
+  arithmetic, guards checking only a first byte, a cancel that still
+  moves state); the status lens found the post-close leftovers (the
+  `$FD` → `$7A` move left C64 ZP ranges stale in three docs); the
+  contract lens found the one serious contract breach (`.` at
+  `$00–$7F`); the manual run found the m65 user-facing gaps (`M`,
+  `ml:` / `mh:`, `workstart`).
+- **Reproduce before filing.**  The lead re-ran every serious code
+  claim live before filing it (B1, B2, B4, B5, B7, B8, B16 on the
+  emulators; B15 in the source); the probers' own reproductions were
+  kept as scripts.  One prober claim the lead re-ran first turned out
+  to describe a different path (a RESTORE into a session, not
+  `cse_recover`) — the precise reproduction then confirmed the bug.
+- **Fixers by file partition.**  Four writers, no conflicts; the one
+  cross-group dependency (renaming userland_contract.md § 3's
+  heading, which other groups link) was declared in the ledger with
+  its new anchor, so every group could repoint in parallel.
+- **Byte identity proven by a worktree build of HEAD** — all three
+  release PRGs compared, not just the C64 hashes.
+
+### What didn't
+
+- **The bug round's Step 5 was too narrow, again.**  Each fix updated
+  its module doc and TODO but left sibling facts: the C64 ZP range in
+  memory_design.md and platform_layer.md after `disk_local_ptr` moved,
+  memory_design.md's KDATA paragraph after the linker bound, the
+  repl.md sentence on the `.` pre-evaluation.  The doc-delta-scope
+  lesson (a change's Step 5 spans every doc that states the fact)
+  was known and still missed under pace.
+- **Milestone-progress wording outlived slice 3** (repl.md's status
+  banner, "(F5)" futures, glossary tags) despite Maintenance item 10.
+- **m65-only facts lag the c64 ones** in BSS tables and Interface
+  text: P2–F5 added cells and paths without the platform-qualified
+  rows.
+
+### Suggested amendments
+
+- **A bug fix's Step 5 greps the old fact.**  Before committing a fix
+  that changes a stated value (an address, a size, a range), grep the
+  corpus for the old value and its phrasing; every hit is updated or
+  justified.
+- **BSS tables per platform.**  The BSS audit checks only the c64
+  map; teach it the m65 map, so an m65 cell without a row fails.
+- **Next sweep's axes:** source-first edge-probe (not run this time)
+  and a lifecycle matrix for the m65 bank state.
+
+### Closing summary
+
+The corpus and the code agree again on both platforms, as far as six
+lenses reach; 21 code and test findings wait in TODO § Bugs, eight of
+them (B1–B8 in the ledger) user-visible on the release path.  Every
+release PRG is unchanged.
+
+---
+
+## M65 slice 3 — banks: CDD Report (2026-11-20)
+
+Branch `m65`, `f84e5a7` (the delta) to `a1e229a` (F5c): 19 commits,
+then the F5 code review (`a22544d`).  Under the CDD Method, milestone
+by milestone, each Step 2 and Step 3 approved by the operator.
+
+### What slice 3 delivered
+
+- **F0** — the m65 base page cleaned: the C64's held holes and the
+  project name gone, 24 bytes free.
+- **F1** — flat addresses `H.AAAA` in the REPL: the prompt, `m`, `.`,
+  `d`, `+` / `-` with the bank carry, the write refusal into the ROM
+  banks.
+- **F2** — the program's map: the monitor reads and writes through
+  the captured bank state (`far_user`, the lens, KCODE in the data
+  window); `r` and `M` show and edit it.
+- **F3** — far starts: `j 4.2000` runs a bank as `JSRFAR` would, the
+  map record written as the KERNAL expects.
+- **F4** — flat breakpoints and steps: a breakpoint belongs to its
+  physical byte.
+- **F5** — 32-bit values in three cycles: F5a the evaluator and the
+  symbol table (8-byte entries, rc 7 `range`, `expr_eval32`, the BSS
+  operand stack), F5b the assembler's banks (flat `.org`, the emit
+  gate, flat labels, the same-bank rule, `.dd`, `a` / `g` in a
+  bank), F5c the REPL's address arguments as expressions.
+
+### The changes in numbers
+
+- m65-45gs02 24 421 → 27 009 B; the C64 PRGs byte-identical through
+  the slice.
+- 60 files, +10 133 / −5 092 lines (`f84e5a7^..a1e229a`).
+- Tests (Tier U and I) 5968 → 6563 since R7's report; Tier X 168 →
+  258 (both ROMs), among them the map record (banks 1, 4, 5), far
+  starts and flat breakpoints on xmega65.
+
+### Unplanned changes
+
+- **F5's split** into three cycles at its Step 2.
+- **The F5 code review** found four F5b bugs, each reproduced by a
+  test before its fix: `.bas` kept a flat bank, `a` at a flat prompt
+  assembled into bank 0, `info_bank` leaked into `l`'s line, RESTORE
+  left `expr_bank` / the 32-bit opt-in set.
+- **The base page** — F5a needed 4 bytes the 20-byte rule protected;
+  plain scratch (`_ex_tmp`, `_ex_digits`, `_asm_saved_sp`) moved to
+  BSS instead, as zp.md had planned.
+- **A process slip** — a `git stash` during a background test run, with
+  make's one-second timestamps, left stale objects; caught, the run
+  discarded, rebuilt clean.  Then `make clean` removed the M65Emu
+  snapshots and ~560 tests skipped silently until they were recaptured.
+
+### Follow-ups
+
+- The bug round that followed (2026-11-20/21, TODO § Records › Fixed
+  bugs) and this log's sweep entry above.
+- The hardware walk (TODO § The first release).
+
 ## R7 — CDD Report: the MEGA65 port's CPU and platform layers (2026-11-16/20)
 
 Branch `m65`, `910d96d..` the P5 close: 338 commits over five days,

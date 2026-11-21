@@ -29,7 +29,12 @@ take the m65 set (T6); `d` / `.` rows have five byte columns, `.`
 re-entry keeps a 16-bit branch's width (T8).  Slice 3 (repl.md § Banks):
 flat addresses, the map in `r` and `M`, far starts, flat breakpoints
 (F1-F4); `?` in 32 bits and `;?expr range` (F5a); `g` far-starting a
-flat `main`, `.` and the same-bank rule, RESTORE leaving no bank (F5b).
+flat `main`, `.` and the same-bank rule, RESTORE leaving no bank (F5b);
+the address arguments of `@`, `j`, `b` and `m` as 32-bit expressions,
+flat when their width is FAR (F5c).  `.` hands its line to asm_line:
+the accumulator form (`asl a`), `*` as the instruction's address, an
+undefined operand as `;?expr undef` (repl.md § The `.` command in
+detail).
 """
 
 import re
@@ -634,7 +639,7 @@ def test_dot_assembles_the_m65_forms(s, text, raw):
     assert s.peek(USER, len(raw)) == raw
 
 
-# ── the program's base page (userland_contract.md § 3 On m65, Zero page) ──
+# ── the program's base page (userland_contract.md § 3 On m65: memory regions, Zero page) ──
 
 USER_BP = [*range(0x0A, 0x90), *range(0xFB, 0x100)]   # $0A-$8F, $FB-$FF
 

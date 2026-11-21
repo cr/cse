@@ -26,7 +26,7 @@ states the seam's contract and points there.
 | [`tests/unit/test_platform_m65.py`](../tests/unit/test_platform_m65.py) | test contract — the m65 macro bodies on M65Emu in clean mode: `KCALL` / `KJMP` (B = 0 for the KERNAL, registers through), the far accesses in banks 0, 2, 3, 4, `FAR_BANK`, `PLAT_SETBNK` |
 | [`dev/m65_macros_test.s`](../dev/m65_macros_test.s), [`dev/m65_test.cfg`](../dev/m65_test.cfg) | test helper — the m65 macro bundle, and the linker config of every m65 test bundle (base page at `0.1F00`, code and data at `$4000`; the m65-45gs02 `asm_core` and `dasm` bundles too) |
 | [`tests/emulator/test_m65_map_record.py`](../tests/emulator/test_m65_map_record.py) | test contract (Tier X) — `JSRFAR` writes its map into the KERNAL's map record for the call and restores the caller's; a CBDOS call from the far code returns into it (xmega65, each ROM; [userland_contract.md § 5.6](userland_contract.md#56-on-m65-memory-maps-and-kernal-calls)) |
-| [`tests/emulator/test_m65_base_page.py`](../tests/emulator/test_m65_base_page.py) | test contract (Tier X) — the program's base-page cells (`$0A–$8F`, `$FB–$FF`) keep a pattern through a typed session in xmega65 and M65Emu, on each ROM ([userland_contract.md § 3 On m65](userland_contract.md#on-m65)) |
+| [`tests/emulator/test_m65_base_page.py`](../tests/emulator/test_m65_base_page.py) | test contract (Tier X) — the program's base-page cells (`$0A–$8F`, `$FB–$FF`) keep a pattern through a typed session in xmega65 and M65Emu, on each ROM ([userland_contract.md § 3 On m65: memory regions](userland_contract.md#on-m65-memory-regions)) |
 | [`tests/unit/test_m45_ops.py`](../tests/unit/test_m45_ops.py) | test contract — each raw-byte macro is the compendium's encoding of its instruction |
 | [`tests/m65emu/m45_ops.py`](../tests/m65emu/m45_ops.py) | test helper — the macros assembled and decoded: clean mode's allowed keys |
 | [`tests/fixtures/golden/c64_prg_sha256.json`](../tests/fixtures/golden/c64_prg_sha256.json) | generated — the recorded SHA-256 of each C64 release PRG; back-link-exempt (JSON data) |
@@ -142,7 +142,7 @@ platform lacks is absent there, so a stray use fails to assemble.
 | DMAgic | none | the job-list address and trigger registers `$D700–$D705` (the loader's install, `_main`'s step 11); the F018B option and the job commands |
 | The free-ZP fill (`_main` step 10) | `ZP_BASE` `$00`, `ZP_FILL_END` `$80` | `ZP_BASE` `$00`, `ZP_FILL_END` = `STUB_BASE`'s low byte: the free part of CSE's base page |
 | The jump-table page (the loader's gate) | none | `KERNAL_JUMP_PAGE` `$FF00`: every entry CSE calls is in it |
-| `DISK_LOCAL_PTR` (disk.s's private pointer) | `$FD` — in the KERNAL half; see [TODO § Bugs](TODO.md#bugs) | `disk_local_ptr`, a 2-byte cell of CSE's base page (zp.s): it reads only filenames in CSE's own view, so it needs no bank ([disk.md § On m65](modules/disk.md#on-m65)) |
+| `DISK_LOCAL_PTR` (disk.s's private pointer) | `disk_local_ptr` at `$7A`, a 2-byte cell of CSE's swapped `$00–$7F` (zp.s), not the user's free `$FB–$FE` | `disk_local_ptr`, a 2-byte cell of CSE's base page (zp.s): it reads only filenames in CSE's own view, so it needs no bank ([disk.md § On m65](modules/disk.md#on-m65)) |
 | The directory buffer (`list_directory`'s `LOAD "$"`) | none: the listing streams (OPEN / CHKIN / CHRIN, [disk.md § list_directory](modules/disk.md#list_directory)) | `DIR_BUF` `$D000` in `DIR_BANK` 2: `2.D000–2.FFFF` ([memory_design.md](memory_design.md) § Memory Map — m65) |
 
 **Hypervisor services (m65).**  The documented Hypervisor traps the
@@ -178,7 +178,7 @@ exists, with `B = 0`.
 
 `KC_BRANCH op, inverse, target` (macro): a conditional branch across
 `KCALL`s.  c64: `op target`.  m65: `inverse` over a `jmp target` — a
-`KCALL` is 14 bytes there, so a C64 short branch across some is out
+`KCALL` is 13 bytes there, so a C64 short branch across some is out
 of range (disk.s, three sites).
 
 ### Base page
@@ -187,7 +187,7 @@ Where CSE's zero page is, and what a transition does with the user's.
 
 | Platform | CSE's zero page | The user's zero page |
 |---|---|---|
-| c64 | base page 0, `$02–$79` ([zp.md](modules/zp.md)) | `$00–$7F`, swapped at every kernel ↔ user transition by mem.s's four primitives |
+| c64 | base page 0, `$02–$7B` ([zp.md](modules/zp.md)) | `$00–$7F`, swapped at every kernel ↔ user transition by mem.s's four primitives |
 | m65 | its own base page: `B = CSE_BP` (`$1F`, the page `0.1F00`) whenever kernel code runs | base page 0, never touched by CSE: the transitions switch `B`, not bytes |
 
 On m65 the page's layout is its own

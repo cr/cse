@@ -53,7 +53,9 @@ zp (`stub_cold_target`, the cold target's cell), the KERNAL's
 linker-supplied symbols
 `__CODE_LOAD__`, `__CODE_RUN__`, `__CODE_SIZE__`, `__RODATA_SIZE__`,
 `__BSS_RUN__`, `__BSS_SIZE__`, `__KDATA_LOAD__`, `__KDATA_RUN__`,
-`__KDATA_SIZE__`.
+`__KDATA_SIZE__`; on m65 also `__STUB_LOAD__`, `__STUB_RUN__`,
+`__STUB_SIZE__` (the stub copy) and `__KCODE_SIZE__` (KCODE rides
+with KDATA).
 
 ## Test contract
 
@@ -123,8 +125,11 @@ image in bank 0):
    CSE's base page (`a:BP_ABS(stub_cold_target)`: the loader runs with
    `B = 0`).
 4. `hyppo_rom_writeenable`: banks 2–3 writable.
-5. One DMA job list: CODE + RODATA image → `3.2000`, KDATA image →
-   the data window, BSS → zero.  The job list is data in the LOADER
+5. One DMA job list, three chained F018B jobs: CODE + RODATA image →
+   `3.2000`; KDATA and KCODE (code that runs in the data window) as
+   one block → the data window — KCODE follows KDATA in the image and
+   at run time, so one copy of `__KDATA_SIZE__ + __KCODE_SIZE__`
+   bytes places both; BSS → zero.  The job list is data in the LOADER
    segment.
 6. `ldx #4` · `jmp stub_cold` (X selects the stub's cold target),
    which `MAP`s the CSE map, sets `B = CSE_BP` and jumps to `_main` (its `EOM` leaves the I flag as `sei` left it;
@@ -132,7 +137,7 @@ image in bank 0):
    itself: it runs in the `$2000–$7FFF` window the CSE map replaces.
 
 The m65 body does the C64 body's work (relocate, clear BSS, place
-KDATA) with the platform's means; the two share the entry, the
+KDATA — and KCODE, which the C64 has not) with the platform's means; the two share the entry, the
 contract shape and this document.
 
 ## Caveats

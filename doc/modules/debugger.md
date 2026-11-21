@@ -51,6 +51,10 @@ Called by `_main` at cold init and by `hw_reinit_body`
 The seed keeps the first restore of a ZP buffer from writing `$00`
 into the DDR ([mem.md § CPU-port aware ZP save/restore](mem.md#cpu-port-aware-zp-saverestore)).
 
+The block is swept as `STEP_STATE_SIZE` = 11 bytes from `brk_pc`; on
+m65 `step_len` sits inside it, so the sweep ends one byte short and
+leaves `_rtu_need_sentinel` as it was (TODO § Bugs: B15).
+
 **On m65:** `reg_z` and `reg_b` are zeroed with the others; the
 saved bank state (`um_map`, the port in `userland_zp_buf`, `um_d030`,
 `um_kmap`, `um_sysflags`) is seeded with the run premise's — the user
@@ -58,10 +62,12 @@ map, `$FF` / `$85`, `$64`, `um_kmap` the user map, `SYSFLAGS` 0 —
 after `bank_state_swap` has written the CSE map into the KERNAL's map
 record, which the cold start thus leaves CSE's
 ([platform_layer.md § User transitions](../platform_layer.md#user-transitions));
-there is no `kernel_zp_buf`.  The registers a fresh start installs
+there is no `kernel_zp_buf`.  `run_bank` is not cleared, so after a
+far start the seed (and the `cse_recover` that runs it) installs the
+far start's map (TODO § Bugs: B16).  The registers a fresh start installs
 are the run premise's: `A X Y Z B` = 0, and P as the CPU keeps it —
 `E` = 1, which `RTI` does not load
-([userland_contract.md § 3](../userland_contract.md#on-m65)).
+([userland_contract.md § 3 On m65](../userland_contract.md#on-m65-memory-regions)).
 
 ### save_userland_state
 **In:** called (`jsr`) by `cse_brk_handler` / `cse_nmi_handler` with
@@ -184,12 +190,14 @@ and `cse_brk_handler` (each chained step).
 **Out:** `dbg_step_clear`, then step slot 8 = (`step_next_lo`,
 saved 0, flags 1) if nonzero and slot 9 = (`step_next_hi`, saved 0,
 flags 1) if nonzero.  Nothing is patched yet (`patch_all` does that
-on the way out).
-**Clobbers:** A, X
+on the way out).  On m65 each slot holds the next PC's flat address
+under the program's bank state (`step_bp_arm`,
+[breakpoints.md § step_bp_arm (m65)](breakpoints.md#step_bp_arm-m65)).
+**Clobbers:** A, X; on m65 also Y and `rp_ptr` (`step_bp_arm`)
 
 Callers: as `step_next_pc`.
 
-**State** — **BSS (11 bytes):** (17 on m65, with `step_len`, `um_kmap` and `um_sysflags`)
+**State** — **BSS (11 bytes):** (18 on m65, with `step_len`, `um_kmap`, `um_sysflags` and `run_bank`)
 
 | Variable | Size | Exported | Purpose |
 |---|---|---|---|
@@ -203,6 +211,7 @@ Callers: as `step_next_pc`.
 | `_rtu_need_sentinel` | 1 | no | per call: 1 from `return_to_userland`, 0 from `restore_userland_state`; read by `_rtu_body` |
 | `um_kmap` | 4 (m65 only) | no (debug labels: tests) | the program's KERNAL map record `0.011C–011F` (its bank state; P3) |
 | `um_sysflags` | 1 (m65 only) | no (debug labels: tests) | the program's `SYSFLAGS` (its bank state; P2) |
+| `run_bank` | 1 (m65 only) | yes (repl.s) | a fresh start's bank: 0 for a CPU start, else the far start's (1, 4 or 5); read by `seed_bank_state` (§ return_to_userland) |
 
 `dbg_reason` and `in_userland` are cross-module flags in `zp.s`
 ([zp.md § Cross-module flags](zp.md#cross-module-flags));
@@ -214,7 +223,7 @@ is breakpoints.s's; `reg_*` are asm_line.s's; `kernel_zp_buf` /
 `reg_p`), mem (`save_userland_zp`, `restore_userland_zp`,
 `save_kernel_zp`, `restore_kernel_zp`, `kernel_zp_buf`,
 `userland_zp_buf`), breakpoints (`patch_all`, `step_bp`,
-`dbg_step_clear`), oplen_tbl (C64) or, on m65, dasm (`dasm_insn`,
+`dbg_step_clear`; `step_bp_arm` on m65), oplen_tbl (C64) or, on m65, dasm (`dasm_insn`,
 `_dasm_in`, `_dasm_pfx`), zp (`rp_ptr`, `rp_ptr2`,
 `in_userland`, `dbg_reason`; `asm_cpu` on m65); `.include`s
 `cpu_set.inc` on m65 (`ASM_CPU_45GS02`)
@@ -339,7 +348,8 @@ REPL's call chain.
 4. `step_next_pc`.  Both results 0 (a BRK at `brk_pc` under `t`) →
    `post_run_cleanup` (panel again, no user code runs).
 5. **Workspace gate:** every nonzero target must satisfy
-   `$0800 ≤ addr < buf_base` (or be `brk_stub`); else the step is
+   `$0800 ≤ addr < buf_base` on c64 (on m65 reach user memory, § `b`)
+   or be `brk_stub`; else the step is
    undone (`step_cleanup`: `step_state`, step slots, the disabled
    breakpoint enabled again) and `;!range` is printed — the session
    is exactly as before.  The same gate (`step_targets_check`, shared
@@ -478,7 +488,7 @@ through the program's bank state when set) and `b H.AAAA` (a flat
 literal) set a breakpoint on a physical byte; the list shows every slot
 flat (`; b0: 4.2005`, `0.2005` in bank 0 too — the slot is physical).
 A target must be user memory the contract gives
-([userland_contract.md § 3 On m65](../userland_contract.md#on-m65)):
+([userland_contract.md § 3 On m65](../userland_contract.md#on-m65-memory-regions)):
 `0.2000–0.BFFF`, `1.2000–1.F6FF`, `4.0000–5.FFFF`; anything else,
 banks 2–3 and the I/O page among it, is `;?range`.  A step arms its
 BRKs at the next PCs' flat addresses under the map in force — the same
@@ -494,7 +504,8 @@ b -N            delete slot N (1-8)
 b *             delete all
 ```
 
-`b ADDR` requires `$0800 ≤ addr < buf_base` (else `;?range`) and
+`b ADDR` requires `$0800 ≤ addr < buf_base` on c64 (m65: user
+memory, above; else `;?range`) and
 reuses the slot that already holds the address; a full table is
 `;?full`.  Output: `; bp 1: $1010` (set, list), `; bp 3: $----`
 (empty slot), `; bp 1 del`, `; bp clr`.  Breakpoints persist across
@@ -552,21 +563,23 @@ Changed registers are installed by the next transfer to user code
 (`c`, `t`, `o`, `j`, `g`); `j`/`g` replace `pc:` with their start
 address.  `s:` moves the user's SP.
 
-**On m65** the line has two more fields, `z:` and `b:` (two hex
-digits each), after `y:`, and its layout depends on the screen
-width.  In 80 columns (80 × 25, 80 × 50) it is one line of 48
-characters:
+**On m65** the line has four more fields: `z:` and `b:` (two hex
+digits each) after `y:`, and at its end `ml:` and `mh:` (four hex
+digits each), the program's `MAP` for the lower and the upper 32 K
+(`um_map`: X A and Z Y; [repl.md § Banks (m65)](repl.md#banks-m65)).
+Its layout depends on the screen width.  In 80 columns (80 × 25,
+80 × 50) it is one line of 64 characters:
 
 ```
-r pc:XXXX a:XX x:XX y:XX z:XX b:XX s:XX nv-bdizc
+r pc:XXXX a:XX x:XX y:XX z:XX b:XX s:XX nv-bdizc ml:XXXX mh:XXXX
 ```
 
 In 40 columns (ESC 4) that line does not fit; `r` then prints two
-rows — the c64 line, and `r z:XX b:XX` below it:
+rows — the c64 line, and `r z:XX b:XX ml:XXXX mh:XXXX` below it:
 
 ```
 r pc:XXXX a:XX x:XX y:XX s:XX nv-bdizc
-r z:XX b:XX
+r z:XX b:XX ml:XXXX mh:XXXX
 ```
 
 Each row re-executes unchanged on its own, because `r` sets the fields
@@ -611,12 +624,15 @@ session can no longer be resumed.
 - **`return_to_userland` / `restore_userland_state` do not return.**
   The kernel runs again only through `cse_brk_handler` /
   `cse_nmi_handler` and their jump to `main_loop_top`.
-- Breakpoints and step BRKs work only in workspace RAM: `b` refuses
-  addresses outside `WORKSTART ≤ addr <` the workspace's upper bound
-  (`;?range`) — `$0800 ≤ addr < buf_base` on c64, `$2000 ≤ addr <
-  $C000` on m65 ([platform_layer.md § Constants](../platform_layer.md#constants)) —
-  and every step — chained ones included — refuses targets outside it
-  (`;!range`).
+- Breakpoints and step BRKs work only in user memory: `b` refuses
+  other addresses (`;?range`) and every step — chained ones included
+  — refuses targets outside it (`;!range`).  On c64 that is the
+  workspace, `WORKSTART ≤ addr < buf_base` (`$0800` up;
+  [platform_layer.md § Constants](../platform_layer.md#constants));
+  on m65 it is the byte the address reaches through the program's
+  bank state (`bp_range_check` → `bp_cpu_ok` → `bp_flat_ok`), which
+  must lie in `0.2000–0.BFFF`, `1.2000–1.F6FF` or `4.0000–5.FFFF`
+  (§ `b`).
 - `o` over a `JSR` or a branch whose fall-through is never reached
   (a routine that does not return, a loop that exits sideways) runs
   free; RUN/STOP+RESTORE breaks in.

@@ -43,7 +43,9 @@ cse/
 │   ├── mem.s               Memory manager (banking, ZP save/restore, segment queries)
 │   ├── strings.s           Shared strings (RODATA)
 │   ├── zp.s                Central zero-page layout (all modules)
-│   ├── *.inc               Shared includes: macros.inc, log.inc, dbg_reason.inc
+│   ├── platform.inc        The platform layer: c64 / m65 constants and macros (KCALL…)
+│   ├── m45_ops.inc         45GS02 opcodes as .byte macros (MAP, TAB, …)
+│   ├── *.inc               Shared includes: macros.inc, log.inc, dbg_reason.inc, bp.inc
 │   ├── mn6_tables.s        ┐
 │   ├── mn7_tables.s        │
 │   ├── mn_modes.s          │ GENERATED — do not edit
@@ -53,7 +55,8 @@ cse/
 │   ├── dasm_tables.s       │
 │   ├── dasm_mne_idx.s      ┘
 │   ├── c64_trial.cfg       ld65 trial linker config (size measurement)
-│   └── c64_cse.cfg.in      ld65 production linker config template
+│   ├── c64_cse.cfg.in      ld65 production linker config template
+│   └── m65_cse.cfg         ld65 linker config of the m65 build (fixed layout)
 │
 ├── dev/                    Development tools (owner: build_system.md)
 │   ├── instruction_set.py  Authoritative opcode database (shared with bbbc64)
@@ -110,6 +113,7 @@ cse/
     ├── release/{6510,6502,m65}/    Optimized PRGs, exomizer SFX, map, lbl, objects
     ├── debug/{6510,6502,m65}/      -g PRGs with full .lbl
     ├── cse.d64             Distribution D64 (all CPU variants, compressed)
+    ├── cse-m65.d81         Distribution D81 of the m65 build (the raw PRG)
     └── *_test.*, *.o       Test bundles and their objects
 ```
 

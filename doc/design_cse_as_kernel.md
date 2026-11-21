@@ -24,9 +24,10 @@ Control flow between CSE (the "kernel") and user code uses the
 The REPL is the ISR body.  Every BRK from user code re-enters the
 REPL with a fresh interrupt frame.
 
-Terminology: **kernal** = CBM KERNAL (the ROM); **kernel** = CSE's
-runtime.  The distinction matters because CSE *uses* the kernal
-extensively.
+Terminology: **KERNAL** (also written *kernal*) = the machine's ROM
+operating system, CBM's or the MEGA65's; **kernel** = CSE's runtime
+([glossary.md § Hardware](glossary.md#hardware)).  The distinction
+matters because CSE *uses* the KERNAL extensively.
 
 ## 2. Stack: shared, never swapped
 

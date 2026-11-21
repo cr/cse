@@ -278,7 +278,7 @@ fu_go:  sta fu_w
         beq @ram
 @def:   cpy #$D
         bne @ef
-        lda fu_cfg              ; $D000-$DFFF: I/O above 4, ROM 1-4
+        lda fu_cfg              ; $D000-$DFFF: I/O above 4, ROM 1-3, else RAM
         cmp #5
         bcs @io
         and #3
